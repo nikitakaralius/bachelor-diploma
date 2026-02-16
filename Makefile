@@ -1,4 +1,4 @@
-.PHONY: pdf refs
+.PHONY: pdf application refs
 
 pdf:
 	# First LaTeX run
@@ -9,6 +9,12 @@ pdf:
 	- pdflatex -output-directory=./build -interaction=nonstopmode thesis.tex
 	# Third LaTeX run to resolve all references
 	- pdflatex -output-directory=./build -interaction=nonstopmode thesis.tex
+
+application:
+	- pdflatex -output-directory=./build -interaction=nonstopmode application.tex
+	- biber --output-directory=./build build/application
+	- pdflatex -output-directory=./build -interaction=nonstopmode application.tex
+	- pdflatex -output-directory=./build -interaction=nonstopmode application.tex
 
 refs:
 	mkdir -p refs/text
