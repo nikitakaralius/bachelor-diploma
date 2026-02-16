@@ -8,7 +8,7 @@ This is a bachelor thesis repository for SPbPU (Saint Petersburg Polytechnic Uni
 
 **Main thesis file**: `thesis.tex` - This is the root document that includes all packages, settings, and chapter content.
 
-**Current topic**: "Разработка компонентов аутентификации, авторизации и учета в распределенных системах" (Development of authentication, authorization and accounting components in distributed systems)
+**Current topic**: "Проектирование и интеграция компонентов аутентификации, авторизации и учёта в микросервисной архитектуре" (Design and integration of authentication, authorization and accounting components in microservice architecture)
 
 ## Build Commands
 
