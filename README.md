@@ -1,4 +1,7 @@
 ﻿# bachelor-diploma
+
+[Оригинальный репозиторий шаблона](https://github.com/ParkhomenkoV/SPbPU-student-thesis-template)
+
 ## TLDR
 - [thesis.tex](thesis.tex) – корневой файл диплома. Здесь подключаются все пакеты и настройки, а также содержимое диплома.
 - В [chapters](chapters) лежат файлы с главами (вступление, глава 1, глава 2 и т.д.) в порядке их следования в дипломе.
