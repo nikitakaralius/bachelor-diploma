@@ -1,4 +1,4 @@
-.PHONY: pdf application refs
+.PHONY: pdf application task refs
 
 pdf:
 	# First LaTeX run
@@ -15,6 +15,12 @@ application:
 	- biber --output-directory=./build build/application
 	- pdflatex -output-directory=./build -interaction=nonstopmode application.tex
 	- pdflatex -output-directory=./build -interaction=nonstopmode application.tex
+
+task:
+	- pdflatex -output-directory=./build -interaction=nonstopmode task.tex
+	- biber --output-directory=./build build/task
+	- pdflatex -output-directory=./build -interaction=nonstopmode task.tex
+	- pdflatex -output-directory=./build -interaction=nonstopmode task.tex
 
 refs:
 	mkdir -p refs/text
