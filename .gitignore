@@ -75,3 +75,5 @@ Author_guide_SPbPU-student-thesis.tex
 .idea
 /build/*
 !/build/.gitkeep
+
+docs-private
