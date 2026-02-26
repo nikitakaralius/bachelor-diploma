@@ -8,7 +8,7 @@ This is a bachelor thesis repository for SPbPU (Saint Petersburg Polytechnic Uni
 
 **Main thesis file**: `thesis.tex` - This is the root document that includes all packages, settings, and chapter content.
 
-**Current topic**: "Проектирование и интеграция компонентов аутентификации, авторизации и учёта в микросервисной архитектуре" (Designing and integrating authentication, authorization, and accounting components for microservice architecture)
+**Current topic**: "Система автоматической бесшовной ротации криптографических ключей авторизации в высоконагруженной микросервисной платформе (на примере ООО «Майндбокс»)" (A system for automatic seamless rotation of authorization cryptographic keys in a high-load microservice platform, a case study of Mindbox LLC)
 
 ## Build Commands
 
