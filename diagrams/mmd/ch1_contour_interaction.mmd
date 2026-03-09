@@ -1,17 +1,17 @@
 graph TD
     infra["Infra<br/>(администрирование)"]
-    staging["Staging<br/> свой RSA-ключ"]
+    alpha["Alpha<br/> свой RSA-ключ"]
     beta["Beta"]
-    stable["Stable"]
+    gamma["Gamma"]
     sigma["Sigma"]
-    omega["Omega (AWS)"]
+    omega["Omega"]
 
-    infra <--> staging
+    infra <--> alpha
     infra <--> beta
-    infra <--> stable
+    infra <--> gamma
     infra <--> sigma
     infra <--> omega
 
-    beta -.->|fallback: отсутствующие<br/>микросервисы| stable
+    beta -.->|fallback: отсутствующие<br/>микросервисы| gamma
 
-    style staging stroke-dasharray: 5 5
+    style alpha stroke-dasharray: 5 5
