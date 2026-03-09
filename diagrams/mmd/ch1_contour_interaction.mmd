@@ -1,0 +1,17 @@
+graph TD
+    infra["Infra<br/>(администрирование)"]
+    staging["Staging<br/> свой RSA-ключ"]
+    beta["Beta"]
+    stable["Stable"]
+    sigma["Sigma"]
+    omega["Omega (AWS)"]
+
+    infra <--> staging
+    infra <--> beta
+    infra <--> stable
+    infra <--> sigma
+    infra <--> omega
+
+    beta -.->|fallback: отсутствующие<br/>микросервисы| stable
+
+    style staging stroke-dasharray: 5 5

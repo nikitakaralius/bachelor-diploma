@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant A as Сервис A
+    participant V as Vault
+    participant B as Сервис B
+
+    A->>V: Получить закрытый RSA-ключ
+    V-->>A: Закрытый RSA-ключ
+    A->>A: Подписать JWT закрытым ключом
+    A->>B: HTTP-запрос с JWT в заголовке
+    B->>V: Получить тот же закрытый ключ
+    V-->>B: Закрытый RSA-ключ
+    B->>B: Проверить подпись JWT
