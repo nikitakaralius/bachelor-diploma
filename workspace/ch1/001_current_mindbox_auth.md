@@ -57,17 +57,11 @@
 ```mermaid
 graph TD
     infra["Infra<br/>(администрирование)"]
-
-    subgraph "Общий RSA-ключ"
-        beta["Beta"]
-        stable["Stable"]
-        sigma["Sigma"]
-        omega["Omega (AWS)"]
-    end
-
-    subgraph "Свой RSA-ключ"
-        staging["Staging"]
-    end
+    staging["Staging<br/> свой RSA-ключ"]
+    beta["Beta"]
+    stable["Stable"]
+    sigma["Sigma"]
+    omega["Omega (AWS)"]
 
     infra <--> staging
     infra <--> beta
@@ -76,6 +70,8 @@ graph TD
     infra <--> omega
 
     beta -.->|fallback: отсутствующие<br/>микросервисы| stable
+
+    style staging stroke-dasharray: 5 5
 ```
 
 ### Нарушение изоляции между контурами
