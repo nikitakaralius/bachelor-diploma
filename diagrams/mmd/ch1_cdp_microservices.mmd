@@ -1,0 +1,16 @@
+graph LR
+    subgraph "Тенантные приложения"
+        cdpA["CDP<br/>Тенант A"]
+        cdpB["CDP<br/>Тенант B"]
+    end
+
+    subgraph "Мультитенантные микросервисы"
+        R["Рассылки"]
+        S["Сегменты"]
+        A["Аналитика"]
+        R <--> S
+        S <--> A
+    end
+
+    cdpA -->|"JWT (tenant=A)"| R
+    cdpB -->|"JWT (tenant=B)"| R

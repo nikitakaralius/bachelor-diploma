@@ -1,0 +1,17 @@
+graph TD
+    infra["Infra<br/>(администрирование)"]
+    alpha["Alpha<br/> свой RSA-ключ"]
+    beta["Beta"]
+    gamma["Gamma"]
+    sigma["Sigma"]
+    omega["Omega"]
+
+    infra <--> alpha
+    infra <--> beta
+    infra <--> gamma
+    infra <--> sigma
+    infra <--> omega
+
+    beta -.->|fallback: отсутствующие<br/>микросервисы| gamma
+
+    style alpha stroke-dasharray: 5 5

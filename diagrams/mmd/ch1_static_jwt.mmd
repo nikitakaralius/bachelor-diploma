@@ -1,0 +1,15 @@
+sequenceDiagram
+    actor D as Разработчик
+    participant V as Vault
+    participant A as Сервис A
+    participant B as Сервис B
+
+    D->>V: Сгенерировать JWT (срок: 10 лет)
+    D->>V: Сохранить токен как секрет
+
+    A->>V: Прочитать готовый JWT из секрета
+    V-->>A: JWT (срок: 10 лет)
+    A->>B: HTTP-запрос с JWT в заголовке
+    B->>V: Получить закрытый RSA-ключ
+    V-->>B: Закрытый RSA-ключ
+    B->>B: Проверить подпись JWT
