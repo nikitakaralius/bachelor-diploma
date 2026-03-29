@@ -51,33 +51,6 @@
     doi = {10.3390/app12063023}
 }
 
-% Знакомое вступление, но теперь средство решение не M2M auth, а про логирование.
-% Делали анализ академических источников, стандартов, документации, конференций.
-% Затрагивают 3 основные темы: Threat modeling, Security Design, Implementation.
-% Статья содержит набор статей по безопасности микросервисных архитектур.
-% Много пишут про методы исследования, может быть полезно.
-% Нашли 8 угроз для модели, когда приложение напрямую отправляет логи в сервис логирования (в основном, связанные с сетью).
-% Крупные игроки используют паттерн с агентом-сборщиком логов из файла (МКСы пишут в этот файл), публикующим логи в message broker в HA кластере. Брокер доставляет логи в сервис логов.
-% Агент деплоится демоном или в k8s сайдкаром.
-% Крутая таблица №3 c определением категорий событий, которые надо логировать.
-% Рекомендация по использованию структурированных логов.
-% Крутой поинт, что за логирование и его инструментарий должна отвечать инфраструктурная команда.
-% It is preferable to ask development teams to use standard output to write log messages.
-% МКС и агент должны использовать mTLS, чтобы устранить все сетевые уязвимости
-% Фильриация и санитизация логов – отвественность агента
-% CorrellationID и хелсчеки агента как лучшие практики.
-% Указаны категории контекстов для включения в логи.
-
-@Article{Barabanov2021,
-    author = {Barabanov, Alexander I. and Makrushin, Denis},
-    title = {Security Audit Logging in Microservice-Based Systems: Survey of Architecture Patterns},
-    journal = {Вопросы кибербезопасности},
-    year = {2021},
-    number = {2},
-    pages = {71--80},
-    doi = {10.21681/2311-3456-2021-2-71-80}
-}
-
 % Ссылки плохие – только на документацию инструментов и известные манифесты.
 % Практики имплементации с использованием Helm, Prometheus, Grafana, Fluent Bit, and Spinnaker.
 % Рекомендуют zero trust architecture, mTLS for s2s encryption, IdP, secure vaults for secrets.
@@ -98,30 +71,6 @@
     pages = {2582--5208},
     year = {2025},
     doi = {10.56726/IRJMETS82304}
-}
-
-% Во встпуплении упоминается AI для организации безопасности и анализа входящих сигналов.
-% Статья про автоматизированный анализ логов на основе ELK.
-% Разрабатывают инструмент анализа логов блокчейн систем. То есть распределенный здесь не кластер, а сама система.
-% Хотят использовать NLP для поиска по логам.
-% Обработка логов моделями происходит в реальном времени.
-% Система умеет работать с неструктурированными логами.
-% Система предоставляет сервис мониторинга для обнаружения аномалий.
-% В системе одновременно используются модели для непересекающихся задач.
-% Модели системы учатся понимать слова предметной области, которые другие классификаторы могли бы пропустить.
-% Зачем-то есть анализ тональности логов (позитивный, негативный, нейтрайльный).
-% Дают пояснение, что это хороший индикатор происходящего в системе.
-% На синтетических тестах показали, что могут автоматически обнаружить DDoS атаки.
-% Много ссылок на похожие решения, так что разработанное решение интересно, но не уникально.
-
-@Article{DiPilla2023,
-    author = {Di Pilla, Piergiuseppe and Pareschi, Remo and Salzano, Francesco and Zappone, Federico},
-    title = {Listening to what the system tells us: Innovative auditing for distributed systems},
-    journal = {Frontiers in Computer Science},
-    volume = {4},
-    pages = {1020946},
-    year = {2023},
-    doi = {10.3389/fcomp.2022.1020946}
 }
 
 % Явно проговорено, что в k8s нет встроенных механизмов аутентификации, авторизации, управления доступом и шифрования трафика.
@@ -205,17 +154,6 @@
     url = {https://cyberleninka.ru/article/n/ispolzovanie-upravleniya-dostupom-na-osnove-atributov-v-protokole-oauth-2-0},
 }
 
-%
-
-@inproceedings{Amir2021,
-    author = {Amir-Mohammadian, S. and Zowj, A. Y.},
-    title = {Towards Concurrent Audit Logging in Microservices},
-    booktitle = {Proceedings of the 2021 IEEE 45th Annual Computers, Software, and Applications Conference (COMPSAC)},
-    year = {2021},
-    pages = {1357--1361},
-    doi = {10.1109/COMPSAC51774.2021.00191},
-}
-
 % Руководство NIST по архитектуре Zero Trust в микросервисах
 % Полезно для формализации принципов AAA и сетевой изоляции.
 % Хорошо подходит для теоретической части и описания требований безопасности.
@@ -242,37 +180,6 @@
     number = {2},
     pages = {3297--3311},
     doi = {10.32628/CSEIT25112793},
-}
-
-@Article{Laigner2024,
-    author = {Laigner, R.},
-    title = {An Empirical Study on Challenges of Event Management in Microservice Architectures},
-    journal = {arXiv preprint},
-    year = {2024},
-    eprint = {2408.00440},
-    archivePrefix = {arXiv},
-    primaryClass = {cs.SE},
-    url = {https://arxiv.org/abs/2408.00440},
-}
-
-@Article{Alongi2022,
-    author = {Alongi, F.},
-    title = {Event-sourced, observable software architectures: An experience report},
-    journal = {Software: Practice and Experience},
-    year = {2022},
-    volume = {52},
-    number = {10},
-    pages = {2127--2151},
-    doi = {10.1002/spe.3101},
-}
-
-@Thesis{Alshikh2020,
-    author = {Alshikh, Hani},
-    title = {Evaluation and Use of Event-Sourcing for Audit Logging},
-    institution = {Hamburg University of Applied Sciences (HAW Hamburg)},
-    year = {2023},
-    type = {Bachelor's Thesis},
-    url = {https://reposit.haw-hamburg.de/handle/20.500.12738/16034},
 }
 
 % https://rtfm.co.ua/ru/istio-obzor-i-zapusk-service-mesh-v-kubernetes/
