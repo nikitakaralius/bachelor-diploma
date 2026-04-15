@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant C as Клиент
+    participant A as Сервис A (прокси)
+    participant B as Сервис B (целевой)
+
+    C->>A: HTTP-запрос с JWT пользователя
+    A->>A: Извлечь JWT из входящего запроса
+    A->>B: HTTP-запрос с тем же JWT
+    B->>B: Проверить подпись JWT
+    B->>B: Определить разрешения по claims
