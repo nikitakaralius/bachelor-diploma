@@ -1,0 +1,32 @@
+sequenceDiagram
+    autonumber
+    box rgb(152,251,152) Контур stable
+        participant Client as Микросервис (stable)
+        participant AuthS as auth-jwt (stable)
+    end
+
+    box rgb(173,216,230) Контур infra
+        participant AuthI as auth-jwt (infra)
+        participant Target as Микросервис (infra)
+    end
+
+    rect rgb(240,248,255)
+        Note over Client,AuthS: Получение exchange-token
+        Client->>AuthS: POST /exchange-token
+        AuthS-->>Client: exchange-token (TTL: 5 мин)
+    end
+
+    rect rgb(255,250,240)
+        Note over Client,AuthI: Обмен на токен целевого контура
+        Client->>AuthI: POST /token (Bearer: exchange-token)
+        Note over AuthI: Проверяет подпись по JWKS stable
+        Note over AuthI: Проверяет iss, aud, sub, срок
+        AuthI-->>Client: infra-токен
+    end
+
+    rect rgb(245,255,250)
+        Note over Client,Target: Авторизованный запрос
+        Client->>Target: Запрос (Bearer: infra-токен)
+        Target->>Target: Проверяет подпись по JWKS infra
+        Target-->>Client: Ответ
+    end

@@ -1,0 +1,9 @@
+flowchart LR
+    Request["Запрос данных"] --> L1{"L1: In-memory"}
+    L1 -->|Попадание| Response["Ответ"]
+    L1 -->|Промах| L2{"L2: Dragonfly"}
+    L2 -->|Попадание| FillL1["Заполнить L1"]
+    FillL1 --> Response
+    L2 -->|Промах| L3["L3: PostgreSQL"]
+    L3 --> FillL2["Заполнить L1 + L2"]
+    FillL2 --> Response

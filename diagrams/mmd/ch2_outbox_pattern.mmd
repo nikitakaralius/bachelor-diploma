@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+    participant S as auth-jwt (Services)
+    participant DB as PostgreSQL (event_logs)
+    participant W as auth-jwt (Worker)
+    participant K as Kafka
+    participant SIEM as SIEM
+
+    S->>DB: INSERT event (в той же транзакции)
+
+    loop ProcessEventLogJob
+        W->>DB: SELECT необработанные события
+        DB-->>W: Батч событий
+        W->>K: Publish
+        W->>DB: UPDATE статус = отправлено
+    end
+
+    K->>SIEM: Consume
