@@ -1,4 +1,19 @@
-.PHONY: pdf application task refs
+.PHONY: pdf application task refs diagrams
+
+diagrams:
+	@echo "Compiling Mermaid diagrams..."
+	@for f in diagrams/mmd/*.mmd; do \
+		name=$$(basename "$$f" .mmd); \
+		echo "  mermaid: $$name"; \
+		mmdc -i "$$f" -o "diagrams/img/$${name}.png" -b transparent -s 4; \
+	done
+	@echo "Compiling PlantUML diagrams..."
+	@for f in diagrams/puml/*.puml; do \
+		name=$$(basename "$$f" .puml); \
+		echo "  plantuml: $$name"; \
+		plantuml -tpng -Sdpi=200 -o ../img "$$f"; \
+	done
+	@echo "Diagrams complete."
 
 pdf:
 	# First LaTeX run
