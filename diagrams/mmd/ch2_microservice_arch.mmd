@@ -1,0 +1,4 @@
+graph TB
+    Services["Services\n(HTTP API)"] --> Model["Model\n(доменная логика)"]
+    Worker["Worker\n(фоновые задачи)"] --> Model
+    Migrator["Migrator\n(миграции БД)"]

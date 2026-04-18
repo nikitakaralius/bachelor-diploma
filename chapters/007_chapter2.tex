@@ -131,7 +131,7 @@ Kubernetes-кластеров, GitLab CI, Octopus Deploy
 (например, хранилище ключей или очередь событий)
 без изменения бизнес-логики.
 
-Кодовая база будет разделена на четыре компонента.
+Кодовая база будет разделена на четыре компонента (\firef{fig:microservice-arch}).
 
 \begin{itemize}
   \item \textbf{Model}~--- ядро системы: доменная логика и определения портов.
@@ -166,6 +166,13 @@ Kubernetes-кластеров, GitLab CI, Octopus Deploy
     Будет выполнять миграции при деплое перед запуском остальных компонентов,
     гарантируя согласованность схемы с кодовой базой.
 \end{itemize}
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=0.85\textwidth]{diagrams/img/ch2_microservice_arch}
+  \caption{Компоненты auth-jwt}
+  \label{fig:microservice-arch}
+\end{figure}
 
 Services и Worker будут разделять общий слой Model,
 но масштабироваться независимо,
