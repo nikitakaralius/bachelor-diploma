@@ -1,0 +1,88 @@
+@startuml
+title ER-диаграмма системы авторизации
+
+top to bottom direction
+
+skinparam {
+  shadowing false
+  linetype ortho
+}
+
+together {
+  entity "auth_clients" as clients {
+    * id : int <<PK>>
+    --
+    * client_id : varchar(128) <<UNIQUE>>
+    * client_type : varchar(32)
+    * allow_custom_claims : boolean
+    * enforced_claims : jsonb
+    * is_deleted : boolean
+  }
+
+  entity "token_policies" as policies {
+    * id : int <<PK>>
+    --
+    * auth_client_id : int <<FK>>
+    * name : varchar(128)
+    * time_to_live_in_seconds : int
+    * permissions : text[]
+    * full_access : boolean
+    * version : int
+    * allow_tenant_header : boolean
+  }
+
+  entity "api_keys" as keys {
+    * id : int <<PK>>
+    --
+    * auth_client_id : int <<FK>>
+    * name : varchar(50)
+    * comment : varchar(500)
+    * status : varchar(50)
+    last_rotation_utc : timestamptz
+    * status_change_utc : timestamptz
+  }
+}
+
+together {
+  entity "trusted_issuers" as issuers {
+    * id : int <<PK>>
+    --
+    * issuer_name : varchar <<UNIQUE>>
+    * access_type_groups : text[]
+    * storage_type : varchar
+    valid_issuer : varchar
+    * validate_audience : boolean
+    discovery : varchar
+    jwks_url : varchar
+    public_keys_json : jsonb
+  }
+
+  entity "rsa_rotations" as rotations {
+    * id : int <<PK>>
+    --
+    * execution_step : varchar(128)
+    * status : varchar(64)
+    * trigger_source : varchar(64)
+    * created : timestamptz
+    completed : timestamptz
+    * ping_count_after_create : int
+    * ping_count_before_delete : int
+    * primary_key_hash : varchar(128)
+  }
+
+  entity "event_log_entries" as events {
+    * id : int <<PK>>
+    --
+    * logged_datetime_utc : timestamptz
+    * system_name : varchar(128)
+    * comment : varchar(1028)
+    payload : jsonb
+    * client_id : varchar(255)
+    staff_email : varchar(255)
+  }
+}
+
+clients ||--o{ policies
+clients ||--o{ keys
+
+@enduml
