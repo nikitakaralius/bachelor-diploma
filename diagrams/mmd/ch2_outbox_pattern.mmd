@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+    participant AJ as auth-jwt
+    participant DB as PostgreSQL
+    participant K as Kafka
+    participant SIEM as SIEM
+
+    AJ->>DB: INSERT event (в той же транзакции)
+
+    loop Фоновая задача
+        AJ->>DB: SELECT необработанные события
+        DB-->>AJ: Батч событий
+        AJ->>K: Publish
+        K-->>AJ: ACK
+        AJ->>DB: UPDATE статус = отправлено
+    end
+
+    SIEM->>K: Consume

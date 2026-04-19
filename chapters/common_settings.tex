@@ -12,6 +12,14 @@
 %%
 
 
+%%%% Определение языка HCL для листингов
+\lstdefinelanguage{HCL}{
+  morecomment=[l]{\#},
+  morestring=[b]",
+  morekeywords={resource, variable, output, module, provider,
+    for_each, locals, data, true, false, null},
+}
+
 %%%% Подключение библиографии / Upload bibliography
 %% 
 %% 

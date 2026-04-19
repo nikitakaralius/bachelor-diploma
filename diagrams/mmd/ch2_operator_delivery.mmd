@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+    participant CR as AuthJwtConfig CR
+    participant Op as Оператор
+    participant AJ as auth-jwt
+    participant S as K8s Secret
+    participant MKS as Микросервис
+
+    loop Каждые 30 секунд
+        Op->>CR: Читает спецификацию
+        Op->>AJ: POST /token-set/{clientId}/sync
+        AJ-->>Op: Токены + JWKS
+        Op->>S: Записывает auth.json
+    end
+
+    MKS->>S: Читает токены и JWKS
+    MKS->>MKS: Токен → исходящие запросы
+    MKS->>MKS: JWKS → проверка входящих

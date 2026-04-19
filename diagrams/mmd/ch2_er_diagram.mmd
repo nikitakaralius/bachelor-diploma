@@ -1,0 +1,55 @@
+erDiagram
+    auth_clients ||--o{ token_policies : "имеет"
+    auth_clients ||--o{ api_keys : "имеет"
+
+    auth_clients {
+        int id PK
+        varchar client_id UK
+        varchar client_type
+        boolean allow_custom_claims
+        jsonb enforced_claims
+    }
+
+    token_policies {
+        int id PK
+        int auth_client_id FK
+        varchar name
+        int ttl_seconds
+        text permissions
+        boolean full_access
+        int version
+    }
+
+    api_keys {
+        int id PK
+        int auth_client_id FK
+        varchar name
+        varchar status
+    }
+
+    trusted_issuers {
+        int id PK
+        varchar issuer_name UK
+        text access_type_groups
+        varchar storage_type
+        varchar valid_issuer
+        varchar discovery
+    }
+
+    rsa_rotations {
+        int id PK
+        varchar step
+        varchar status
+        varchar trigger_source
+        int ping_count_1
+        int ping_count_2
+        varchar primary_key_hash
+    }
+
+    event_log_entries {
+        int id PK
+        timestamptz logged_utc
+        varchar system_name
+        jsonb payload
+        varchar client_id
+    }

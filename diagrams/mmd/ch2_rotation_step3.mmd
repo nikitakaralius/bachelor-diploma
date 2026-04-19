@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant AJ as auth-jwt
+    participant OP as Оператор
+    participant MKS as Микросервисы
+
+    AJ->>AJ: Удаляет старый ключ
+    Note over AJ: Primary = Ключ B<br/>Secondary = ∅
+
+    OP->>AJ: Reconcile
+    AJ-->>OP: Токены + JWKS (только Ключ B)
+    OP->>MKS: Обновляет секреты
+
+    Note over AJ,MKS: Ротация завершена<br/>Ни один запрос не потерян

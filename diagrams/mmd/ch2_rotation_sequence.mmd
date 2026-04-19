@@ -1,0 +1,52 @@
+sequenceDiagram
+    autonumber
+    box rgb(173,216,230) auth-jwt
+        participant Job as Job ротации
+        participant API as auth-jwt API
+    end
+    participant Vault as Vault
+
+    box rgb(245,255,250) Доставка ключей
+        participant Op as Оператор
+    end
+
+    box rgb(152,251,152) Микросервисы
+        participant MKS as Микросервис
+    end
+
+    rect rgb(240,248,255)
+        Note over Job,Vault: Шаг 1: Создание нового ключа
+        Job->>Job: Генерирует RSA ключ (Ключ B)
+        Job->>Vault: PRIMARY = Ключ A, SECONDARY = Ключ B
+        Note over Job,Vault: Подпись: Ключ A | Проверка: A + B
+    end
+
+    rect rgb(255,250,240)
+        Note over Job,MKS: Пауза 1: доставка нового JWKS (~10 мин)
+        loop 10 успешных пингов
+            Job->>API: GET /jwks (ping)
+            API-->>Job: OK, счётчик +1
+        end
+        Note over Op,MKS: Оператор доставляет обновлённый JWKS
+    end
+
+    rect rgb(240,248,255)
+        Note over Job,Vault: Шаг 2: Swap ключей
+        Job->>Vault: PRIMARY = Ключ B, SECONDARY = Ключ A
+        Note over Job,Vault: Новые токены подписываются Ключом B
+    end
+
+    rect rgb(255,250,240)
+        Note over Job,MKS: Пауза 2: обновление токенов (~10 мин)
+        loop 10 успешных пингов
+            Job->>API: GET /jwks (ping)
+            API-->>Job: OK, счётчик +1
+        end
+        Note over Op,MKS: Оператор обновляет токены в Secret
+    end
+
+    rect rgb(240,248,255)
+        Note over Job,Vault: Шаг 3: Удаление старого ключа
+        Job->>Vault: PRIMARY = Ключ B, SECONDARY = ∅
+        Note over Job,Vault: Ротация завершена
+    end

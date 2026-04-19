@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant S as Субъект
+    participant TI as Доверенный эмитент
+    participant AJ as auth-jwt
+    participant DB as trusted_issuers
+
+    Note over S,TI: Субъект читает токен эмитента
+    S->>TI: Запрос токена
+    TI-->>S: Токен эмитента
+
+    S->>AJ: POST /token (Bearer: токен эмитента)
+
+    AJ->>DB: Публичные ключи разрешённых эмитентов
+    DB-->>AJ: Ключи
+
+    AJ->>AJ: Проверяет подпись токена
+    AJ->>AJ: Проверяет enforced claims
+
+    alt Проверка пройдена
+        AJ-->>S: JWT-токен auth-jwt
+    else Отклонено
+        AJ-->>S: 401 / 403
+    end

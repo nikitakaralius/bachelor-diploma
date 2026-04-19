@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant AJ as auth-jwt
+    participant OP as Оператор
+    participant MKS as Микросервисы
+
+    AJ->>AJ: Swap ключей
+    Note over AJ: Primary = Ключ B<br/>Secondary = Ключ A
+
+    Note over AJ: Новые токены подписываются Ключом B
+
+    loop ~10 минут
+        OP->>AJ: Reconcile
+        AJ-->>OP: Токены (Ключ B) + JWKS
+        OP->>MKS: Обновляет секреты
+    end
+
+    Note over MKS: Старые токены (Ключ A)<br/>выходят из обращения

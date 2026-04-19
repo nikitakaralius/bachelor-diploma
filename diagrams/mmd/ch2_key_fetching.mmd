@@ -1,0 +1,17 @@
+sequenceDiagram
+    autonumber
+    participant Job as Фоновая задача
+    participant DB as База данных
+    participant Cache as Кеш ключей
+    participant Issuer as Доверенный эмитент
+
+    loop Периодически
+        Job->>Issuer: GET /.well-known/openid-configuration
+        Issuer-->>Job: Метаданные (jwks_uri)
+        Job->>Issuer: GET /jwks
+        Issuer-->>Job: Публичные ключи
+        Job->>DB: Сохранить ключи
+        Job->>Cache: Обновить кеш
+    end
+
+    Note over Job,Cache: При недоступности эмитента<br/>используется последняя версия из кеша
