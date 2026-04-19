@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant AJ as auth-jwt
+    participant OP as Оператор
+    participant MKS as Микросервисы
+
+    Note over AJ: Primary = Ключ A
+
+    AJ->>AJ: Генерирует Ключ B
+    Note over AJ: Primary = Ключ A<br/>Secondary = Ключ B
+
+    loop ~10 минут
+        OP->>AJ: Запрашивает JWKS
+        AJ-->>OP: JWKS (Ключ A + Ключ B)
+        OP->>MKS: Обновляет секреты
+    end
+
+    Note over MKS: Знают оба ключа
