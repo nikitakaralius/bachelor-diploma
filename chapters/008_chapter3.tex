@@ -1,36 +1,122 @@
-\chapter{Название третьей главы: разработка программного обеспечения} \label{ch3}
+\chapter{Разработка программного обеспечения} \label{ch3}
 
-% auth-jwt
-% - код генерации токена, какая библиотека используется
-% - код федеративной авторизации с access группами
-% - код как работают enforced claims, метод EnforceClientClaims
-% - код DiagnosticContext для замера производительности + скриншот из grafana
-% - эндпоинт SyncTokenSet – специально для оператора, управляет лайтаймом. Метод ShouldRefreshToken
-% - код CreateSecondaryKeyStep – показать как выглядит один из шагов ротации
-% - TrustedIssuersRepository – показать как устроена работа с БД через EF Core
-% - Какой-нибудь небольшой код работы с клиентами авторизации
-% - Пример интеграционного теста с собственным DSL – показать что тесты можно описывать кратко и лаконично даже для сложного функционала + скриншот общего покрытия тестами
-% auth-jwt-operator
-% - структура CR - AuthJwtConfigSpec и связанные структуры в файле
-% - код функции Reconcile с объяснением
-% - код sendSyncTokenSetRequests – максимальный механизм защиты. Если смогли получить хоть какой-то токен, то обязательно его запишем
-% - пример e2e теста (фреймворк BDD) – запускаем kubernetes в контейнере, тестируем реальное поведение системы. Тест надо выбрать небольшой, чтобы он не был на несколько страниц
-% - про получившееся время реконсила, скриншот с графана, какую степень параллелизма ставим
-% terraform-provider-authjwt
-% - что это такое зачем нужно
-% - показать пример определения ресурса
-% - рассказать, что публикуется в Artifactory, на Artifactory ссылка через источники
-% auth-jwt-terraform
-% - рассказать как по умному сделали заведение клиентов через local, чтобы удобнее было декларировать клиентов
-% - скриншот как выглядит terraform plan
-% Mindbox.Authentication
-% - Атрибут MindboxAuthentication – как работает
-% - Интерфейсы ITokenStore, IAuthJwtClient
-% - PhysicalFileProvider для обновления секретов. Секрет монтируется как файл (показать код из helm)
-% - Декларативное конфигурирование возможностей библиотеки
-% - Быстрое построение ключа хеша с использованием XxHash64 и stackalloc (дать ссылку на исследования производительности и статьи)
-% - Форумлы подсчета bufferTime для обновления заранее (код + мат формулы)
-% - Метод IsTokenStillValid – как определяется когда обновлять токен
-% - Юнит и интеграционные тесты (на примерах кода, разобранного ранее)
+% =============================================================================
+% 3.1. Микросервис авторизации auth-jwt
+% =============================================================================
+% 3.1.1. Генерация токенов
+%   - Листинг: сокращённый DefaultTokenGenerator — SecurityTokenDescriptor,
+%     signing credentials (ECDSA), issuer, TTL
+%   - Библиотека: Microsoft.IdentityModel.JsonWebTokens (JsonWebTokenHandler)
+%   - Акцент: MapInboundClaims = false — предотвращение переименования claims
+%
+% 3.1.2. Федеративная авторизация с группами доступа
+%   - Листинг: FederatedAuthorizeAttribute — массив групп доступа, схемы аутентификации
+%   - Таблица: группы доступа (CurrentContour, Octopus, GitLab, Teleport,
+%     ExternalAuthJwt) и какие эмитенты к ним относятся
+%   - Листинг: фрагмент TrustedIssuersAuthenticationHandler — фильтрация эмитентов
+%
+% 3.1.3. Механизм enforced claims
+%   - Листинг: метод EnforceClientClaims — валидация обязательных утверждений
+%   - Пояснение: enforced claims как "контракт" — клиент не может запросить токен
+%     без нужных claims во входящем токене
+%
+% 3.1.4. Измерение производительности (DiagnosticContext)
+%   - Листинг: dc.Measure("SectionName") с using — замер секций обработки запроса
+%   - Плейсхолдер: скриншот Grafana с распределением времени по секциям
+%   - Пояснение: метрики → Prometheus через DiagnosticContextLogger
+%
+% 3.1.5. Эндпоинт SyncTokenSet
+%   - Листинг: ShouldRefreshToken — 4 условия (InitialRequest, WithinRefreshWindow,
+%     KeyRotated, PolicyChanged)
+%   - Пояснение: оператор вызывает для синхронизации, auth-jwt решает что обновить
+%
+% 3.1.6. Шаг ротации: CreateSecondaryKeyStep
+%   - Листинг: реализация IRotationStep<RsaRotationStepContext>
+%   - Pipeline из 7 шагов: CreateSecondary → InitialSyncPem → AfterNewKeyCreated
+%     → SwapKeys → BeforeOldKeyDeleted → DeleteSecondary → FinalSyncPem
+%   - Акцент: идемпотентность шагов, устойчивость к рестартам
+%
+% 3.1.7. Работа с БД: TrustedIssuersRepository
+%   - Листинг: AsNoTracking() для чтения, интеграция с IEventLogRepository
+%   - Паттерн: каждая мутация логируется в той же транзакции
+%
+% 3.1.8. Интеграционные тесты с DSL
+%   - Листинг: компактный тест — BuildAuthClient → CreateAsync → HTTP → assert
+%   - Три слоя DSL: API, DB, Secrets
+%   - Плейсхолдер: скриншот покрытия тестами
+%
+% =============================================================================
+% 3.2. Kubernetes-оператор auth-jwt-operator
+% =============================================================================
+% 3.2.1. Custom Resource: AuthJwtConfigSpec
+%   - Листинг: структура CR — reconcileInterval, secretName, contour, tokens
+%   - Пояснение: CR описывает желаемое состояние авторизации для микросервиса
+%
+% 3.2.2. Цикл реконсиляции
+%   - Листинг: Reconcile — fetch CR → read secret → sync tokens → write secret
+%     → update status → requeue
+%   - Deferred timestamp update, exponential backoff (30с → 5мин)
+%
+% 3.2.3. Максимальная защита: sendSyncTokenSetRequests
+%   - Листинг: двухфазная синхронизация — Stage 1 (текущий контур, ошибка = стоп)
+%     и Stage 2 (внешние контуры, ошибка = failed token, reconcile продолжается)
+%   - Философия: "если получили хоть какой-то токен — запишем"
+%   - Soft delete токенов — остаются в Secret до истечения срока
+%
+% 3.2.4. E2E-тесты с BDD-фреймворком
+%   - Листинг: компактный e2e тест из Ginkgo
+%   - Kind-кластер в контейнере, fake backend с policy-сценариями
+%   - Плейсхолдер: метрики времени реконсила из Grafana
+%
+% =============================================================================
+% 3.3. Terraform Provider и модуль
+% =============================================================================
+% 3.3.1. Terraform Provider authjwt
+%   - Листинг: ресурс authjwt_client — Schema + Create
+%   - Публикация в Artifactory, namespace mindbox-private/authjwt
+%   - Два способа аутентификации: direct token и token exchange (CI/CD)
+%
+% 3.3.2. Terraform-модуль: декларативное управление клиентами
+%   - Листинг: клиент через locals — нормализация defaults, валидация дубликатов
+%   - Preconditions — валидация ссылок на политики и контуры
+%   - Плейсхолдер: скриншот terraform plan
+%
+% =============================================================================
+% 3.4. Клиентская библиотека Mindbox.Authentication
+% =============================================================================
+% 3.4.1. Декларативное конфигурирование
+%   - Листинг: AddMindboxAuthentication с builder-паттерном —
+%     UseAuthJwtConfig(), AddAllowedIssuers(), AddAuthJwtClient()
+%
+% 3.4.2. Доставка секретов через файловую систему
+%   - Листинг: Helm-чарт — volume + volumeMount для auth-secrets
+%   - Листинг: PhysicalFileProvider с UsePollingFileWatcher и reloadOnChange
+%   - Цепочка: оператор → K8s Secret → kubelet → файл → PhysicalFileProvider
+%     → IOptionsMonitor → потребители
+%
+% 3.4.3. Быстрое хеширование: XxHash64 + stackalloc
+%   - Листинг: ComputeHash — сортировка claims, stackalloc byte[sizeof(int)]
+%   - Зачем: ключ кеша для динамических токенов с произвольными claims
+%   - Zero-allocation для числовых типов, XxHash64 vs SHA256
+%
+% 3.4.4. Формулы bufferTime для упреждающего обновления
+%   - Таблица: три диапазона TTL с min/max буфером
+%   - Формула: bufferTime = clamp(TTL × 0.5, minBuffer, maxBuffer)
+%   - Листинг: сокращённый CalculateExpiration
+%
+% 3.4.5. Определение валидности токена: IsTokenStillValid
+%   - Листинг: три проверки — TTL expired, no public keys, kid mismatch
+%   - kid mismatch — механизм реакции на ротацию ключей
+%
+% 3.4.6. Тестирование библиотеки
+%   - Юнит-тесты: MindboxAuthorizeAttribute, CachedAuthJwtClient (25 тестов)
+%   - Интеграционные: TestWebApplicationFactory, end-to-end авторизация
+%
+% =============================================================================
+% 3.5. Выводы по главе
+% =============================================================================
+%   - Сводная таблица: компонент → язык → LoC → тесты → ключевые паттерны
+%   - Связь с требованиями из главы 1
+%   - Подготовка к главе 4: метрики для апробации
 
 %\FloatBarrier % заставить рисунки и другие подвижные (float) элементы остановиться
