@@ -45,9 +45,37 @@
 Генерация JWT~--- наиболее частая операция auth-jwt.
 Подпись токена выполняется алгоритмом RSA-SHA512:
 микросервис загружает закрытый ключ,
-формирует \texttt{SecurityTokenDescriptor} с набором claims,
+формирует \texttt{SecurityTokenDescriptor} с набором claims
 и вызывает \texttt{JsonWebTokenHandler.CreateToken}
 (листинг~\ref{lst:token-generator}).
+
+Помимо claims, специфичных для конкретного клиента,
+во все токены добавляются стандартные утверждения,
+описанные в \taref{tab:standard-claims}.
+
+\begin{table}[h]
+  \centering
+  \caption{Стандартные утверждения, добавляемые во все токены}
+  \label{tab:standard-claims}
+  \begin{tabularx}{\textwidth}{l l X}
+    \hline
+    \textbf{Claim} & \textbf{Источник} & \textbf{Назначение} \\
+    \hline
+    \texttt{sub} & \texttt{ClientId} &
+      Идентификатор клиента авторизации,
+      определяющий, для кого выпущен токен \\
+    \texttt{iss} & Конфигурация &
+      Идентификатор эмитента (URL auth-jwt контура),
+      используется при межконтурной верификации \\
+    \texttt{kind} & Тип запроса &
+      Тип токена (\texttt{service}, \texttt{user}),
+      позволяющий различать сервисные и пользовательские токены \\
+    \texttt{exp}, \texttt{nbf}, \texttt{iat} & Время запроса &
+      Срок действия, начало действия и время выпуска~---
+      стандартные claim RFC~7519~\cite{RFC7519} \\
+    \hline
+  \end{tabularx}
+\end{table}
 
 \begin{lstlisting}[language={[Sharp]C},
   label={lst:token-generator},
