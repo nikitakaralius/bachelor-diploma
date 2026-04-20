@@ -40,22 +40,18 @@
 Реализован на C\# с использованием ASP.NET Core
 и следует слоистой архитектуре, описанной в разделе~\ref{sec:architecture}.
 
-\subsection{Генерация токенов}\label{subsec:token-generation}
+\subsection{Генерация токенов и оптимизация подписи}\label{subsec:token-generation}
 
-Для генерации JWT используется пакет
-Microsoft IdentityModel
-(\texttt{JsonWebTokenHandler} из одноимённой библиотеки),
-предоставляющий типизированный API для работы с токенами.
-В листинге~\ref{lst:token-generator} приведён метод генерации токена.
+Генерация JWT~--- наиболее частая операция auth-jwt.
+Подпись токена выполняется алгоритмом RSA-SHA512:
+микросервис загружает закрытый ключ,
+формирует \texttt{SecurityTokenDescriptor} с набором claims,
+и вызывает \texttt{JsonWebTokenHandler.CreateToken}
+(листинг~\ref{lst:token-generator}).
 
 \begin{lstlisting}[language={[Sharp]C},
   label={lst:token-generator},
   caption={Генерация JWT-токена в DefaultTokenGenerator}]
-private static readonly JsonWebTokenHandler _tokenHandler = new()
-{
-    MapInboundClaims = false
-};
-
 public JwtToken GenerateToken(GenerateTokenRequest request)
 {
     var claims = new Dictionary<string, object>(request.Claims)
@@ -65,32 +61,79 @@ public JwtToken GenerateToken(GenerateTokenRequest request)
         [MindboxJwtConstants.KindClaim] = request.Kind.StringValue
     };
 
-    var expiresAt = request.UtcNow.AddSeconds(request.TtlSeconds);
     var tokenDescriptor = new SecurityTokenDescriptor
     {
         Issuer = rsaOptions.CurrentValue.Issuer,
         TokenType = "JWT",
         SigningCredentials = GetSigningCredentials(SecurityAlgorithms.RsaSha512),
-        Expires = expiresAt,
+        Expires = request.UtcNow.AddSeconds(request.TtlSeconds),
         NotBefore = request.UtcNow,
         IssuedAt = request.UtcNow,
         Claims = claims
     };
 
-    var token = _tokenHandler.CreateToken(tokenDescriptor);
-    return new JwtToken { Jwt = token, Kid = tokenDescriptor.SigningCredentials.Kid };
+    return new JwtToken {
+        Jwt = _tokenHandler.CreateToken(tokenDescriptor),
+        Kid = tokenDescriptor.SigningCredentials.Kid };
 }
 \end{lstlisting}
 
-Флаг \texttt{MapInboundClaims = false} отключает
-автоматическое переименование стандартных claims
-(например, \texttt{sub} $\rightarrow$ \texttt{http://schemas.xmlsoap.org/...}),
-что критично для корректной работы enforced claims,
-описанных далее в разделе~\ref{subsec:enforced-claims}.
-Подпись выполняется алгоритмом RSA-SHA512~---
-закрытый ключ загружается из кеша,
-а метод \texttt{GetSigningCredentials} оборачивает его
-в объект \texttt{SigningCredentials} с идентификатором ключа (KID).
+При нагрузочном тестировании было обнаружено,
+что секция \texttt{TokenGeneration}
+занимала в среднем 11,4~мс на запрос (\firef{fig:token-gen-compare}).
+Профилирование выявило причину:
+закрытый ключ хранился в формате PEM,
+и при каждом запросе выполнялся его парсинг
+через вызов OpenSSL (\firef{fig:memory-dump}).
+Согласно дампу,
+50\% процессорного времени приходилось
+на декодирование PEM-представления ключа.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/memory-dump.png}
+  \caption{Профиль процессорного времени: 50\% приходится на парсинг PEM-ключа}
+  \label{fig:memory-dump}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/token-generation-before.png}\\[0.5em]
+  \includegraphics[width=\textwidth]{diagrams/img/token-generation-after.png}
+  \caption{Среднее время генерации токена: до оптимизации~--- 11,4~мс (сверху),
+    после~--- 2,15~мс (снизу)}
+  \label{fig:token-gen-compare}
+\end{figure}
+
+Для устранения проблемы были выполнены два изменения.
+Во-первых, формат хранения ключа в Vault был переведён
+с PEM на JSON-представление компонент RSA
+(\texttt{N}, \texttt{E}, \texttt{D}, \texttt{P}, \texttt{Q}, \texttt{DP}, \texttt{DQ}, \texttt{QI}).
+Это позволило создавать объект \texttt{RSAParameters}
+прямым копированием полей
+без вызова криптографических функций парсинга.
+
+Во-вторых, объект \texttt{SigningCredentials}
+кешируется в памяти и переиспользуется между запросами.
+Инвалидация кеша происходит только при ротации ключа~---
+событии, происходящем раз в неделю.
+
+Результаты оптимизации измерены
+на контуре Beta при 100~RPS в течение 10~минут.
+Среднее время генерации токена снизилось
+с 11,4~мс до 2,15~мс~--- в 5,3~раза (\firef{fig:token-gen-compare}).
+Потребление CPU снизилось
+с 2,5--2,8 ядер до 0,75--0,85 ядра~--- в 3,3~раза (\firef{fig:cpu-compare}).
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.49\textwidth]{diagrams/img/cpu-usage-before.png}
+  \hfill
+  \includegraphics[width=0.49\textwidth]{diagrams/img/cpu-usage-after.png}
+  \caption{Потребление CPU при 100~RPS: до оптимизации~--- 2,5--2,8 ядер (слева),
+    после~--- 0,75--0,85 ядра (справа)}
+  \label{fig:cpu-compare}
+\end{figure}
 
 \subsection{Федеративная авторизация с группами доступа}\label{subsec:federated-auth}
 
