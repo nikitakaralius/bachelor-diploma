@@ -10,19 +10,29 @@
   \centering
   \caption{Объём кодовой базы компонентов системы}
   \label{tab:loc}
-  \begin{tabular}{l r}
+  \begin{tabularx}{\textwidth}{l X r}
     \hline
-    \textbf{Компонент} & \textbf{Строк кода} \\
+    \textbf{Компонент} & \textbf{Назначение} & \textbf{Строк кода} \\
     \hline
-    auth-jwt                    & 22\,555 \\
-    Mindbox.Authentication      & 10\,331 \\
-    auth-jwt-terraform          & 5\,634  \\
-    auth-jwt-operator           & 5\,057  \\
-    terraform-provider-authjwt  & 2\,113  \\
+    auth-jwt &
+      Микросервис авторизации (генерация токенов, ротация ключей) &
+      22\,555 \\
+    Mindbox.Authentication &
+      Клиентская библиотека для микросервисов платформы &
+      10\,331 \\
+    auth-jwt-terraform &
+      Terraform-модуль конфигурации клиентов &
+      5\,634  \\
+    auth-jwt-operator &
+      Kubernetes-оператор доставки токенов &
+      5\,057  \\
+    terraform-provider-authjwt &
+      Terraform Provider для API auth-jwt &
+      2\,113  \\
     \hline
-    \textbf{Итого}              & \textbf{45\,690} \\
+    \textbf{Итого} & & \textbf{45\,690} \\
     \hline
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
 Поскольку рассмотреть 45 тысяч строк кода
