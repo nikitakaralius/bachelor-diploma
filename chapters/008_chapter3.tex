@@ -222,10 +222,7 @@ Enforced claims устраняют угрозу повышения привил�
 
 \begin{figure}[h]
   \centering
-  % Плейсхолдер: скриншот Grafana с распределением времени по секциям
-  \fbox{\parbox{0.8\textwidth}{\centering\vspace{2cm}
-    Скриншот дашборда Grafana: декомпозиция времени обработки запроса GetToken
-  \vspace{2cm}}}
+  \includegraphics[width=\textwidth]{diagrams/img/diagnostic-context.png}
   \caption{Распределение времени обработки запроса GetToken по секциям}
   \label{fig:diagnostic-grafana}
 \end{figure}
@@ -458,10 +455,7 @@ public async Task GenerateToken_ValidParameters_TokenGenerated()
 
 \begin{figure}[h]
   \centering
-  % Плейсхолдер: скриншот покрытия тестами auth-jwt
-  \fbox{\parbox{0.8\textwidth}{\centering\vspace{2cm}
-    Скриншот покрытия кода тестами auth-jwt
-  \vspace{2cm}}}
+  \includegraphics[width=\textwidth]{diagrams/img/test-coverage.png}
   \caption{Покрытие кода интеграционными тестами auth-jwt}
   \label{fig:test-coverage}
 \end{figure}
@@ -707,11 +701,8 @@ Fake backend оператора поддерживает несколько сц
 
 \begin{figure}[h]
   \centering
-  % Плейсхолдер: скриншот Grafana с временем реконсила
-  \fbox{\parbox{0.8\textwidth}{\centering\vspace{2cm}
-    Скриншот дашборда Grafana: время реконсиляции оператора
-  \vspace{2cm}}}
-  \caption{Время реконсиляции оператора в production}
+  \includegraphics[width=\textwidth]{diagrams/img/operator-reconcile.png}
+  \caption{Время реконсиляции оператора на контуре Alpha}
   \label{fig:reconcile-grafana}
 \end{figure}
 
@@ -835,10 +826,7 @@ resource "authjwt_client" "k8s_client" {
 
 \begin{figure}[h]
   \centering
-  % Плейсхолдер: скриншот terraform plan
-  \fbox{\parbox{0.8\textwidth}{\centering\vspace{2cm}
-    Скриншот вывода terraform plan
-  \vspace{2cm}}}
+  \includegraphics[width=\textwidth]{diagrams/img/terraform-plan.png}
   \caption{Вывод terraform plan при применении конфигурации клиентов}
   \label{fig:terraform-plan}
 \end{figure}

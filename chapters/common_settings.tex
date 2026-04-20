@@ -12,12 +12,31 @@
 %%
 
 
+%%%% Настройки подсветки синтаксиса листингов
+\lstset{
+  keywordstyle=\color{blue}\bfseries,
+  emphstyle=\color{Mulberry},
+}
+
 %%%% Определение языка HCL для листингов
 \lstdefinelanguage{HCL}{
   morecomment=[l]{\#},
   morestring=[b]",
   morekeywords={resource, variable, output, module, provider,
     for_each, locals, data, true, false, null},
+}
+
+%%%% Дополнительные ключевые слова для Go
+\lstdefinelanguage{Go}{
+  morekeywords={break, default, func, interface, select,
+    case, defer, go, map, struct, chan, else, goto, package,
+    switch, const, fallthrough, if, range, type, continue,
+    for, import, return, var, nil, true, false, string, int,
+    bool, error, byte, make, len, append, new, context},
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+  morestring=[b]`,
 }
 
 %%%% Подключение библиографии / Upload bibliography
