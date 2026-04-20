@@ -1055,6 +1055,17 @@ resource "authjwt_trusted_issuer" "AuthJwtBeta" {
 Наблюдаемость обеспечивается метриками в формате Prometheus,
 алертами и доставкой событий в SIEM через Kafka с Outbox-паттерном.
 
+Верхнеуровневая архитектура системы,
+объединяющая все описанные компоненты и их взаимосвязи,
+представлена на \firef{fig:architecture-overview}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{conference/architecture-overview.png}
+  \caption{Верхнеуровневая архитектура системы авторизации}
+  \label{fig:architecture-overview}
+\end{figure}
+
 Сводка выбранных инструментальных средств
 приведена в \taref{tab:tools-summary}.
 
