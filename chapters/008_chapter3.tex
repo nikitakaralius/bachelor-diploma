@@ -39,8 +39,7 @@
 в рамках одной главы невозможно,
 далее описываются только ключевые и нестандартные решения
 в реализации каждого компонента:
-механизмы, определяющие корректность и производительность системы,
-а также подходы к тестированию.
+механизмы, определяющие корректность и производительность системы.
 
 \section{Микросервис авторизации auth-jwt}\label{sec:auth-jwt-impl}
 
@@ -491,75 +490,6 @@ public class TrustedIssuersRepository(
 событие гарантированно сохраняется при успешном завершении операции
 и впоследствии доставляется в SIEM через Kafka.
 
-\subsection{Интеграционные тесты с DSL}\label{subsec:integration-tests}
-
-Корректность описанных механизмов подтверждается
-интеграционными тестами.
-Для тестирования auth-jwt разработан
-предметно-ориентированный язык (Domain-Specific Language, DSL),
-позволяющий описывать тесты лаконично
-даже для сложного функционала.
-DSL состоит из трёх слоёв:
-прямые операции с базой данных,
-операции через HTTP API
-и операции с секретами в Vault.
-
-В листинге~\ref{lst:integration-test} приведён
-пример теста генерации токена.
-
-\begin{lstlisting}[language={[Sharp]C},
-  label={lst:integration-test},
-  caption={Интеграционный тест генерации токена с использованием DSL}]
-[TestMethod]
-public async Task GenerateToken_ValidParameters_TokenGenerated()
-{
-    // Arrange: создание клиента через DSL
-    var client = BuildAuthClient(TestClientId,
-        tokenPolicies: [BuildPolicy(TestPolicy,
-            permissions: ["ReadSomething"],
-            allowTenantHeader: true)]);
-    await AuthClientsDb.CreateAsync(client);
-    var k8sToken = GetK8STokenFake(TestClientId);
-
-    // Act: запрос токена через HTTP
-    using var content = JsonContent.Create(
-        new ClientTokenRequest {
-            ClientId = TestClientId,
-            Tenant = "testTenant",
-            Policy = TestPolicy });
-    var response = await ServicesProject.SendAsync<TokenResponse>(
-        "/token", HttpMethod.Post, content, token: k8sToken);
-
-    // Assert: проверка claims и метрик
-    var jwt = ReadJsonWebToken(response.Token);
-    Assert.AreEqual(TestClientId, jwt.Subject);
-    AssertClaim(jwt, MindboxJwtConstants.TenantClaim, "testTenant");
-
-    var metricValue = _tokenIssuedCounter
-        .WithLabels(TestClientId, TestPolicy, "testTenant").Value;
-    Assert.AreEqual(1, metricValue);
-}
-\end{lstlisting}
-
-Тест читается как спецификация:
-создать клиента с политикой,
-запросить токен,
-проверить содержимое и метрику.
-Вспомогательные методы \texttt{BuildAuthClient},
-\texttt{BuildPolicy}, \texttt{GetK8STokenFake}
-скрывают подготовку инфраструктуры,
-а \texttt{AssertClaim}~--- типовые проверки JWT.
-Помимо содержимого токена, тест проверяет,
-что метрика Prometheus была инкрементирована~---
-это гарантирует наблюдаемость.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{diagrams/img/test-coverage.png}
-  \caption{Покрытие кода интеграционными тестами auth-jwt}
-  \label{fig:test-coverage}
-\end{figure}
-
 \section{Kubernetes-оператор}\label{sec:operator-impl}
 
 Микросервис auth-jwt генерирует токены,
@@ -742,81 +672,6 @@ func (r *SyncService) sendSyncTokenSetRequests(
 если микросервису нужен токен для контура Infra,
 а Infra временно недоступен,
 микросервис продолжит работать с предыдущим валидным токеном.
-
-\subsection{E2E-тесты}\label{subsec:e2e-tests}
-
-Описанная логика реконсиляции и двухфазной синхронизации
-тестируется в реальном Kubernetes-окружении.
-Для end-to-end тестирования оператора используется
-фреймворк Ginkgo~--- BDD-фреймворк для Go.
-Тесты запускают Kind-кластер (Kubernetes в контейнере),
-разворачивают оператор с fake backend
-и проверяют реальное поведение системы.
-
-В листинге~\ref{lst:e2e-test} приведён сокращённый тест,
-проверяющий, что удалённые из CR токены
-остаются в Secret до истечения срока действия.
-
-\begin{lstlisting}[language=Go,
-  label={lst:e2e-test},
-  caption={E2E-тест: удалённые токены остаются в Secret до истечения TTL}]
-It("deleting tokens from CR does not remove from secret "+
-    "until expiration", func() {
-
-    By("applying valid AuthJwtConfig")
-    cmd.ApplyAuthJwtConfig(authjwtv1.AuthJwtConfig{
-        Spec: authjwtv1.AuthJwtConfigSpec{
-            Contour:    "stable",
-            SecretName: secretName,
-            Tokens: []authjwtv1.TokenSpec{{
-                Name:   "api-token",
-                Policy: authjwt.FakeShortLivedPolicy,
-            }},
-        },
-    })
-
-    By("awaiting first reconcile")
-    waitForFirstReconcile(clientNS, clientName)
-
-    By("removing tokens from spec")
-    cmd.ApplyAuthJwtConfig(authjwtv1.AuthJwtConfig{
-        Spec: authjwtv1.AuthJwtConfigSpec{
-            Contour: "stable", SecretName: secretName,
-            Tokens:  []authjwtv1.TokenSpec{},
-        },
-    })
-
-    By("checking token remains in secret")
-    Consistently(func(g Gomega) {
-        secret, _ := cmd.GetAuthSecretData(clientNS, secretName)
-        g.Expect(secret.Tokens).To(HaveKey("api-token"))
-    }, 2*time.Second, 200*time.Millisecond).Should(Succeed())
-
-    By("waiting for secret removal after expiration")
-    Eventually(func(g Gomega) {
-        secret, _ := cmd.GetAuthSecretData(clientNS, secretName)
-        g.Expect(secret.Tokens).NotTo(HaveKey("api-token"))
-    }).Should(Succeed())
-})
-\end{lstlisting}
-
-Тест использует две ключевые конструкции Ginkgo:
-\texttt{Consistently}~--- утверждает, что условие выполняется
-непрерывно в течение заданного интервала;
-\texttt{Eventually}~--- ожидает выполнения условия с таймаутом.
-Помимо автоматических тестов, работоспособность оператора
-подтверждается метриками в реальном окружении:
-на \firef{fig:reconcile-grafana} видно,
-что время реконсиляции на контуре Alpha
-стабильно укладывается в SLO,
-определённое в разделе~\ref{subsec:rotation-slo}.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{diagrams/img/operator-reconcile.png}
-  \caption{Время реконсиляции оператора на контуре Alpha}
-  \label{fig:reconcile-grafana}
-\end{figure}
 
 \section{Terraform Provider и модуль}\label{sec:terraform-impl}
 
@@ -1231,32 +1086,6 @@ private bool IsTokenStillValid(
 Причина инвалидации записывается в метрику,
 что позволяет наблюдать волну обновлений при ротации.
 
-\subsection{Тестирование библиотеки}\label{subsec:lib-tests}
-
-Описанные механизмы содержат нетривиальную логику
-с множеством граничных случаев,
-поэтому библиотека покрыта двумя уровнями тестов.
-Юнит-тесты проверяют каждый компонент в изоляции:
-кеширование и инвалидацию токенов,
-вычисление буфера для различных TTL,
-построение ключа кеша,
-генерацию политик авторизации
-и корректность конфигурирования.
-Интеграционные тесты запускают полноценный экземпляр ASP.NET Core
-через \texttt{TestWebApplicationFactory}
-и проверяют end-to-end сценарии:
-авторизацию с валидным токеном,
-отклонение просроченного токена,
-проверку разрешений и работу API-ключей.
-Покрытие кода тестами приведено на \firef{fig:lib-test-coverage}.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{diagrams/img/lib-test-coverage.png}
-  \caption{Покрытие кода тестами библиотеки Mindbox.Authentication}
-  \label{fig:lib-test-coverage}
-\end{figure}
-
 \section{Перевод микросервисов на новую систему авторизации}\label{sec:migration}
 
 Разработка компонентов системы~--- необходимое,
@@ -1347,15 +1176,15 @@ private bool IsTokenStillValid(
   \centering
   \caption{Сводка реализованных компонентов}
   \label{tab:components-summary}
-  \begin{tabularx}{\textwidth}{X l X}
+  \begin{tabularx}{\textwidth}{X l}
     \hline
-    \textbf{Компонент} & \textbf{Язык} & \textbf{Тесты} \\
+    \textbf{Компонент} & \textbf{Язык} \\
     \hline
-    auth-jwt              & C\# & Интеграционные (DSL) \\
-    auth-jwt-operator     & Go  & E2E (Ginkgo + Kind) \\
-    Terraform Provider    & Go  & Юнит \\
-    Terraform-модуль      & HCL & Preconditions \\
-    Mindbox.Authentication & C\# & Юнит + интеграционные \\
+    auth-jwt              & C\# \\
+    auth-jwt-operator     & Go  \\
+    Terraform Provider    & Go  \\
+    Terraform-модуль      & HCL \\
+    Mindbox.Authentication & C\# \\
     \hline
   \end{tabularx}
 \end{table}
@@ -1372,16 +1201,7 @@ pipeline ротации из семи идемпотентных шагов
 позволяющая переводить каждый из 160~микросервисов независимо
 без координации между командами.
 
-Метрики, встроенные в каждый компонент
-(DiagnosticContext в auth-jwt,
-счётчики ошибок в операторе,
-причины инвалидации в библиотеке),
-будут использованы при апробации системы
-на боевых контурах платформы.
-Следующая глава посвящена апробации:
-нагрузочному тестированию,
-запуску автоматической ротации ключей
-и подтверждению выполнения требований
-по задержке и масштабируемости.
+Следующая глава посвящена тестированию компонентов
+и апробации системы на боевых контурах платформы.
 
 \FloatBarrier
