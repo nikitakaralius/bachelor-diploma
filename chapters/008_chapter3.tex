@@ -36,7 +36,8 @@
 микросервис загружает закрытый ключ,
 формирует \texttt{SecurityTokenDescriptor} с набором claims
 и вызывает \texttt{JsonWebTokenHandler.CreateToken}
-(листинг~\ref{lst:token-generator}).
+(листинг~\ref{lst:token-generator},
+полный листинг~\ref{lst:app-token-generator}).
 
 Помимо claims, специфичных для конкретного клиента,
 во все токены добавляются стандартные утверждения,
@@ -380,7 +381,8 @@ string[] rotationStepsInOrder =
 обеспечивают синхронизацию открытых ключей с внешними потребителями.
 
 В листинге~\ref{lst:create-secondary} приведён
-первый шаг~--- генерация Secondary-ключа.
+первый шаг~--- генерация Secondary-ключа
+(полный листинг~\ref{lst:app-create-secondary}).
 
 \begin{lstlisting}[language={[Sharp]C},
   label={lst:create-secondary},
@@ -600,7 +602,8 @@ ctrl.NewControllerManagedBy(mgr).
 Внутри метода \texttt{Sync}, вызываемого на этапе реконсиляции,
 реализована двухфазная стратегия синхронизации,
 учитывающая межконтурное взаимодействие
-(листинг~\ref{lst:send-sync}).
+(листинг~\ref{lst:send-sync},
+полный листинг~\ref{lst:app-sync-service}).
 
 \begin{lstlisting}[language=Go,
   label={lst:send-sync},
@@ -887,6 +890,9 @@ kubelet обновляет файл \texttt{auth.json} в файловой си�
 Помимо статических токенов, доставляемых через файловую систему,
 библиотека поддерживает динамический режим~---
 запрос токенов напрямую у auth-jwt.
+Логика кеширования динамических токенов реализована
+в классе \texttt{CachedAuthJwtClient}
+(полный листинг~\ref{lst:app-cached-client}).
 В динамическом режиме получения токенов
 библиотека кеширует токены по ключу,
 включающему набор claims запроса.
