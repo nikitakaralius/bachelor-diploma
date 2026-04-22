@@ -1,12 +1,12 @@
 %%% Титульник отчета по практике / Practice report title
 %%
 %% Переопределения для НИР-титульника
-\renewcommand{\SupervisorFull}{Резединова Евгения Юрьевна}
-\renewcommand{\Supervisor}{Е.Ю.\,Резединова}
-\renewcommand{\SupervisorDegree}{ст. преподаватель ВШ ПИ}
-\renewcommand{\ConsultantExtraFull}{Сергеев Анатолий Васильевич}
-\renewcommand{\ConsultantExtra}{А.В.\,Сергеев}
-\renewcommand{\ConsultantExtraDegree}{к.т.н, доцент ВШ ПИ}
+\renewcommand{\SupervisorFull}{Сергеев Анатолий Васильевич}
+\renewcommand{\Supervisor}{А.В.\,Сергеев}
+\renewcommand{\SupervisorDegree}{к.т.н, доцент ВШ ПИ}
+\renewcommand{\ConsultantExtraFull}{нет}
+\renewcommand{\ConsultantExtra}{нет}
+\renewcommand{\ConsultantExtraDegree}{}
 \renewcommand{\PracticeStartDate}{02.02.2026}
 \renewcommand{\PracticeEndDate}{14.04.2026}
 %%
@@ -27,6 +27,7 @@
 {\bfseries %2020 - указание на изменения, которые могут быть введены в 2020 году
   <<\MakeUppercase{\SPbPU}>>\\%
 \MakeUppercase{\institute}\\
+\MakeUppercase{\School}\\
 }
 \par}%
 
@@ -68,12 +69,10 @@
 {\noindent {\bfseries Руководитель практики от \SPbPUOfficialShort:}} {\expandafter \ulined \SupervisorFull, \SupervisorDegree.} %Ф.И.О., должность, степень
 
 
-
 {\noindent \bfseries
 Консультант практики от \SPbPUOfficialShort:
 }
-{\noindent \expandafter \ulined \ConsultantExtraFull, \ConsultantExtraDegree}.%,      %% первый консультант Ф.И.О., должность, степень
-%{\noindent \expandafter \ulined \ConsultantExtraTwoFull, \ConsultantExtraTwoDegree.}  %% второй консультант Ф.И.О., должность, степень
+{\noindent \uline{\ConsultantExtraFull}}.%
 
   {\noindent {\bfseries Оценка:} \uline{\hspace*{0.1\textheight}} % НЕ ЗАПОЛНЯЕМ!
 
@@ -83,10 +82,6 @@
 \begin{tabularx}{\linewidth}{lXl}
 	Руководитель практики		&	&\\
   от \SPbPUOfficialShort		&	& \Supervisor     \\[\mfloatsep] % если не хватает места, закомментировать
-
-  Консультант практики		&	&\\
-  от \SPbPUOfficialShort		&	& \ConsultantExtra\\[\mfloatsep]
-%							&	& \ConsultantExtraTwo\\[\mfloatsep]
 
   Обучающийся				&	&\Author\\[\mfloatsep]
   Дата: \uline{\PracticeEndDate}		&	&
