@@ -4,112 +4,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a bachelor thesis repository for SPbPU (Saint Petersburg Polytechnic University) using a LaTeX template. The thesis is written in Russian and follows SPbPU formatting standards.
+Bachelor thesis repository for SPbPU (Saint Petersburg Polytechnic University), written in Russian on the SPbPU LaTeX template (memoir class, 14pt, GOST formatting).
 
-**Main thesis file**: `thesis.tex` - This is the root document that includes all packages, settings, and chapter content.
-
-**Current topic**: "Система автоматической бесшовной ротации криптографических ключей авторизации в высоконагруженной микросервисной платформе (на примере ООО «Майндбокс»)" (A system for automatic seamless rotation of authorization cryptographic keys in a high-load microservice platform, a case study of Mindbox LLC)
+**Topic**: «Система автоматической бесшовной ротации криптографических ключей авторизации в высоконагруженной микросервисной платформе (на примере ООО „Майндбокс"»).
 
 ## Build Commands
 
-### Build PDF
 ```bash
-make pdf
+make pdf          # Full thesis: 3× pdflatex + biber, output to build/thesis.pdf, then copied to ./thesis.pdf
+make application  # application.tex (topic/advisor approval form)
+make task         # task.tex
+make diagrams     # Compile diagrams/mmd/*.mmd (mermaid → PNG) and diagrams/puml/*.puml (plantuml → PNG into diagrams/img)
+make refs         # Extract text from refs/pdf/*.pdf via pdftotext into refs/text/
 ```
-This runs a complete build cycle:
-1. First pdflatex pass
-2. biber for bibliography processing
-3. Second pdflatex pass (includes citations)
-4. Third pdflatex pass (resolves all references)
 
-Output: `build/thesis.pdf`
+LaTeX needs 3 pdflatex passes to resolve TOC, cross-refs, and citations. `make pdf` runs them with `-interaction=nonstopmode` and biber in between. The final PDF is copied to the project root for convenience; `/thesis.pdf` is gitignored.
 
-### Note on Build Process
-The LaTeX compilation requires **3 passes** to properly resolve all cross-references, citations, and table of contents. The Makefile handles this automatically with the `-interaction=nonstopmode` flag to continue on warnings.
+## Architecture
 
-## Project Structure
+### Document entry point
+`thesis.tex` is the root. It loads `template_settings/ch_preamble` → sets `docType=1` (thesis) → loads `chapters/common_settings` → `template_settings/common/renames` → then `\input{...}`s each chapter file in `chapters/` in numbered order.
 
-### Core Files
-- **thesis.tex** - Main document that orchestrates the entire thesis
-- **application.tex** - Standalone application form for thesis topic/advisor approval
-- **Makefile** - Build automation
+To activate/deactivate sections, comment/uncomment `\input{...}` lines in `thesis.tex`. Some long chapters are wrapped with `\ContinueChapterBegin` / `\ContinueChapterEnd` for proper section continuation.
 
-### Content Organization
-All thesis content is in `chapters/` directory with numbered files following the document order:
-- `001_title.tex` - Title page
-- `002_task.tex` - Assignment/task description (currently commented out in thesis.tex)
-- `003_summary.tex` - Abstract/summary (currently commented out)
-- `004_contents.tex` - Table of contents
-- `005_introduction.tex` - Introduction
-- `006_chapter1.tex` through `009_chapter4.tex` - Main chapters (currently commented out)
-- `010_conclusion.tex` - Conclusion (currently commented out)
-- `011_acronyms.tex` - List of abbreviations (optional, commented out)
-- `012_dictionary.tex` - Terminology dictionary (optional, commented out)
-- `013_references.bib` - Bibliography database in BibLaTeX format
-- `013_references.tex` - Bibliography formatting
-- `014_appendix1.tex`, `015_appendix2.tex` - Appendices (commented out)
+### Where to edit what
+- **Personal data, title, supervisor, dates, keywords, abstracts** — `template_settings/common/renames.tex` (single source of truth, not scattered across files).
+- **Author-level packages, macros, custom environments** — `chapters/common_settings.tex`. Bibliography resource is registered here via `\addbibresource{chapters/013_references.bib}`.
+- **Template internals** — `template_settings/` (avoid editing): `ch_preamble.tex` orchestrates loading; `common/` is shared; `Dissertation/` is SPbPU-specific styling; `biblio/` is BibLaTeX config.
+- **Chapter content** — `chapters/NNN_*.tex`, numbered to match document order.
+- **Bibliography** — add entries to `chapters/013_references.bib` (BibLaTeX). Use `\cite{}`, `\textcite{}`, `\parencite{}`.
 
-### Configuration Files
-- **chapters/common_settings.tex** - Author-defined packages, commands, and custom environments
-- **template_settings/common/renames.tex** - **CRITICAL**: Contains all personal information, dates, thesis title, keywords, and abstracts. Edit this file to update author info, supervisor, thesis title, defense dates, etc.
+### Custom commands
+- `\firef{label}` → "рис.X"
+- `\taref{label}` → "табл.X"
+- Additional math/theorem environments defined in `chapters/common_settings.tex`.
 
-### Template Architecture
-The `template_settings/` directory contains the SPbPU thesis template infrastructure:
-- `ch_preamble.tex` - Loads all template components in specific order
-- `common/` - Shared packages, styles, and setup across document types
-- `Dissertation/` - SPbPU-specific thesis packages and styling
-- `biblio/` - Bibliography configuration for BibLaTeX
+### Diagrams
+Sources live in `diagrams/mmd/` (Mermaid) and `diagrams/puml/` (PlantUML); generated PNGs go to `diagrams/img/` and are what the .tex files include. Regenerate with `make diagrams` (requires `mmdc` and `plantuml` installed).
 
-**Important**: The template uses the memoir document class with 14pt font and follows SPbPU GOST formatting standards.
+## CI
 
-## Working with Content
+`.github/workflows/build-latex.yml`:
+- **On PR**: builds PDF, uploads as draft-release asset, posts/updates a comment with download link.
+- **On push to master**: builds PDF and creates a versioned GitHub Release (`vYYYY.MM.DD-HHMMSS`).
 
-### Activating Chapters
-Chapters are included in `thesis.tex` by uncommenting their `\input{}` lines. Currently only title, contents, and introduction are active. Main chapters use the `\ContinueChapterBegin` and `\ContinueChapterEnd` wrapper for proper formatting.
+No linting or spell-check workflows — they were removed as no longer useful.
 
-### Bibliography
-- Add references to `chapters/013_references.bib` in BibLaTeX format
-- Bibliography is loaded in `common_settings.tex` via `\addbibresource{chapters/013_references.bib}`
-- Use standard BibLaTeX citation commands: `\cite{}`, `\textcite{}`, `\parencite{}`, etc.
+## Notes
 
-### Custom Commands
-- Reference figures: `\firef{label}` produces "рис.X"
-- Reference tables: `\taref{label}` produces "табл.X"
-- Custom math/theorem environments are defined in `common_settings.tex`
-
-## GitHub Actions
-
-The repository has automated PDF building via `.github/workflows/build-latex.yml`:
-- **On PR**: Builds PDF and posts download link as PR comment
-- **On master merge**: Creates a release with PDF artifact (version: YYYY.MM.DD-HHMMSS)
-
-## Development Tools
-
-### Spell Checking
-- Configured for bilingual (Russian/English) in `cspell.json`
-- Custom words for LaTeX commands and domain terminology in the `words` array
-
-### Linting
-- `.lintignore` - Lists files excluded from ChkTeX/TeXtidote checks
-- `.chktexrc` - ChkTeX configuration (LaTeX linter)
-- Template files and settings are typically ignored; main chapters are linted
-
-## Important Notes
-
-1. **Personal Information**: All author/supervisor data, thesis title, dates, keywords, and abstracts are in `template_settings/common/renames.tex` - not scattered across files
-
-2. **Commented Sections**: Most content chapters are currently commented out in `thesis.tex`. This appears to be work-in-progress with active development on the introduction.
-
-3. **Build Directory**: The `build/` directory contains all compilation artifacts. Git-ignored, created automatically by the build process.
-
-4. **Branch Strategy**:
-   - Main branch: `master`
-   - Current working branch: `nrw-final-assignment`
-   - PRs should target `master`
-
-5. **Supporting Materials**:
-   - `guides/` - Instructions from template and НИР (research work)
-   - `nrw/` - НИР (research work) artifacts
-   - `refs/` - PDF source materials
-
-6. **Document Type**: Set by `\setcounter{docType}{1}` in thesis.tex (1 = thesis, other values for practice reports)
+- **Build directory**: `build/` holds all LaTeX intermediates; gitignored, created on demand.
+- **Document type**: `\setcounter{docType}{1}` in `thesis.tex` selects thesis mode; other values switch to practice-report layouts in the template.
+- **Supporting material** (not part of the compiled doc): `guides/` (template/НИР instructions), `refs/` (PDF source materials and extracted text), `conference/`, `workspace/`.
+- **Branches**: PRs target `master`.
