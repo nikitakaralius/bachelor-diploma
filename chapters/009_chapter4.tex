@@ -5,7 +5,24 @@
 
 \section{Тестирование компонентов системы}\label{sec:testing}
 
-\subsection{Интеграционные тесты auth-jwt}\label{subsec:ch4-integration-tests}
+Все автоматизированные тесты запускаются в GitLab CI на каждый
+запрос на слияние, и их успешное прохождение~---
+обязательное условие приёмки кода.
+Помимо тестов в пайплайне выполняется ревью изменений ИИ-агентом
+и проверка коммитов утилитой \texttt{gitleaks}
+на предмет случайной компрометации секретов.
+Пример пайплайна приведён на \firef{fig:gitlab-ci}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/gitlab-ci.png}
+  \caption{Пайплайн GitLab CI с тестами, ИИ-ревью и проверкой gitleaks}
+  \label{fig:gitlab-ci}
+\end{figure}
+
+\subsection{Автоматизированное тестирование auth-jwt}\label{subsec:ch4-integration-tests}
+
+% TODO: юнит тесты тоже есть. Нужно обоснование почему их меньше, чем интеграционных. Найти научное исследование, где доказывается, что интеграционные тесты лучше отлавливают ошибки
 
 Для интеграционного тестирования auth-jwt разработан
 предметно-ориентированный язык (Domain-Specific Language, DSL),
@@ -72,7 +89,7 @@ public async Task GenerateToken_ValidParameters_TokenGenerated()
   \label{fig:test-coverage}
 \end{figure}
 
-\subsection{E2E-тесты оператора}\label{subsec:ch4-e2e-tests}
+\subsection{Автоматизированное тестирование оператора}\label{subsec:ch4-e2e-tests}
 
 Для end-to-end тестирования оператора используется
 фреймворк Ginkgo~--- BDD-фреймворк для Go.
@@ -139,7 +156,7 @@ It("deleting tokens from CR does not remove from secret "+
   \label{fig:reconcile-grafana}
 \end{figure}
 
-\subsection{Тестирование клиентской библиотеки}\label{subsec:ch4-lib-tests}
+\subsection{Автоматизированное тестирование клиентской библиотеки}\label{subsec:ch4-lib-tests}
 
 Библиотека Mindbox.Authentication покрыта двумя уровнями тестов.
 Юнит-тесты проверяют каждый компонент в изоляции:
