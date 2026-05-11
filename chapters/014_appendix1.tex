@@ -1,8 +1,429 @@
-\chapter{Скриншот проверки в системе Антиплагиат}\label{ch:appendix1}
+\chapter{Листинги исходного кода}\label{app:source-code}
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{diagrams/img/antiplagiat-report}
-  \caption{Проверка отчета в системе <<Антиплагиат>>}
-  \label{fig:antiplagiat-report}
-\end{figure}
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:app-token-generator},
+  caption={Класс DefaultTokenGenerator: генерация и подпись JWT-токенов}]
+public class DefaultTokenGenerator(
+    ISecretStorage secretStorage,
+    IOptionsMonitor<RsaOptions> rsaOptions) : ITokenGenerator
+{
+    private static readonly JsonWebTokenHandler _tokenHandler = new()
+    {
+        MapInboundClaims = false
+    };
+
+    public JwtToken GenerateToken(GenerateTokenRequest request)
+    {
+        var claims = new Dictionary<string, object>(request.Claims)
+        {
+            [JwtRegisteredClaimNames.Sub] = request.ClientId,
+            [MindboxJwtConstants.OriginalIssuerClaim] =
+                rsaOptions.CurrentValue.Issuer,
+            [MindboxJwtConstants.KindClaim] = request.Kind.StringValue
+        };
+
+        var now = request.UtcNow;
+        if (request.TtlSeconds >
+            rsaOptions.CurrentValue.MaximumJwtLifetime.TotalSeconds)
+            throw new InvalidOperationException(
+                "Token TTL cannot exceed maximum allowed lifetime");
+
+        var expiresAt = now.AddSeconds(request.TtlSeconds);
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Issuer = rsaOptions.CurrentValue.Issuer,
+            TokenType = "JWT",
+            SigningCredentials = GetSigningCredentials(
+                SecurityAlgorithms.RsaSha512),
+            Expires = expiresAt,
+            NotBefore = now,
+            IssuedAt = now,
+            Claims = claims
+        };
+
+        var token = _tokenHandler.CreateToken(tokenDescriptor);
+        return new JwtToken
+        {
+            Jwt = token,
+            Kid = tokenDescriptor.SigningCredentials.Kid,
+            ExpiresAt = expiresAt,
+            IssuedAt = now
+        };
+    }
+
+    public JwtToken GenerateExchangeToken(
+        string clientId, DateTime utcNow)
+    {
+        var claims = new Dictionary<string, object>
+        {
+            [JwtRegisteredClaimNames.Sub] = clientId,
+            [JwtRegisteredClaimNames.Aud] =
+                MindboxJwtConstants.AuthJwtAudClaimValue,
+            [MindboxJwtConstants.ScopeClaim] =
+                MindboxJwtConstants.TokenExchangeScopeValue
+        };
+
+        var expiresAt = utcNow.AddMinutes(5);
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Issuer = rsaOptions.CurrentValue.Issuer,
+            TokenType = "JWT",
+            SigningCredentials = GetSigningCredentials(
+                SecurityAlgorithms.RsaSha512),
+            Expires = expiresAt,
+            NotBefore = utcNow,
+            IssuedAt = utcNow,
+            Claims = claims
+        };
+
+        var token = _tokenHandler.CreateToken(tokenDescriptor);
+        return new JwtToken
+        {
+            Jwt = token,
+            Kid = tokenDescriptor.SigningCredentials.Kid,
+            ExpiresAt = expiresAt,
+            IssuedAt = utcNow
+        };
+    }
+
+    private SigningCredentials GetSigningCredentials(
+        string securityAlgorithm)
+    {
+        var secret = secretStorage.ReadCachedRsaSecret();
+        var signingRsa = RsaHelper.CreateRsaParameters(secret.Primary);
+        var securityKey = new RsaSecurityKey(signingRsa)
+        {
+            KeyId = RsaHelper.GetKid(secret.Primary)
+        };
+        return new SigningCredentials(securityKey, securityAlgorithm);
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:app-create-secondary},
+  caption={Класс CreateSecondaryKeyStep: первый шаг ротации ключей}]
+public class CreateSecondaryKeyStep(
+    ILogger<CreateSecondaryKeyStep> logger,
+    ISecretStorage secretStorage,
+    IOptionsMonitor<RsaOptions> rsaOptions)
+    : IRotationStep<RsaRotationStepContext>
+{
+    public const string Name = "CreateSecondaryKeyStep";
+    public string SystemName => Name;
+
+    public async Task<StepResult> ExecuteAsync(
+        RsaRotationStepContext context,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var currentRsaOptions = rsaOptions.CurrentValue;
+            var currentSecretValue =
+                await secretStorage.ReadRsaSecretAsync();
+
+            if (currentSecretValue.Secondary is not null)
+            {
+                logger.LogWarning(
+                    RsaRotationEventLogIds.StepSkipped,
+                    "Step {StepName} of rotation {RotationId} "
+                    + "skipped: secondary key already exists",
+                    SystemName, context.Rotation.Id);
+                return StepResult.Success(SystemName);
+            }
+
+            var targetRsa = RsaHelper.GenerateRsa(
+                currentRsaOptions.KeySize);
+
+            await secretStorage.UpdateRsaSecretAsync(new()
+            {
+                Primary = currentSecretValue.Primary,
+                Secondary = targetRsa,
+                Version = currentSecretValue.CurrentVersion
+            });
+
+            logger.LogInformation(
+                RsaRotationEventLogIds.StepExecutedSuccessfully,
+                "Step {StepName} in rotation {RotationId} "
+                + "executed successfully",
+                SystemName, context.Rotation.Id);
+            return StepResult.Success(SystemName);
+        }
+        catch (VaultApiException e) when (e.StatusCode is 404)
+        {
+            logger.LogError(
+                RsaRotationEventLogIds.RotationFailed,
+                "RSA not found in rotation {RotationId} "
+                + "in step {StepName}",
+                context.Rotation.Id, SystemName);
+            return StepResult.FailRotation(SystemName);
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Go,
+  label={lst:app-sync-service},
+  caption={Двухфазная синхронизация токенов в Kubernetes-операторе}]
+func (r *SyncService) sendSyncTokenSetRequests(
+    clients SyncTokenSetClients,
+    cfg *authjwtv1.AuthJwtConfig,
+    ts TokenSource,
+) (*JWKsDTO, TokenResponses, error) {
+    responses := make(
+        []tokenSetResponseWithExchange,
+        0, len(clients.ExchangeClients)+1)
+
+    currentContourResp, err := r.Client.SyncTokenSet(
+        SyncTokenSetRequest{
+            URL:         r.Client.CurrentContourURL(),
+            ClientID:    cfg.EffectiveClientID(),
+            TokenSource: ts,
+            TokenSetDTO: clients.ContourClient,
+        })
+    if err != nil {
+        return nil, nil,
+            fmt.Errorf("current contour request: %w", err)
+    }
+
+    responses = append(responses,
+        tokenSetResponseWithExchange{
+            Response: currentContourResp, Exchange: nil,
+        })
+
+    for _, client := range clients.ExchangeClients {
+        exchangeResp, err := r.Client.SyncTokenSet(
+            SyncTokenSetRequest{
+                URL:      client.AuthJwtURL,
+                ClientID: client.ClientID,
+                TokenSource: &StringTokenSource{
+                    Value: currentContourResp.ExchangeToken.Token,
+                },
+                TokenSetDTO: client.TokenSetDTO,
+            })
+        if err != nil {
+            var reason TokenSyncStatusReason
+            if status, ok := r.httpStatusFromError(err); ok {
+                switch status {
+                case http.StatusUnauthorized:
+                    reason = TokenSyncStatusReasonUnauthorized
+                case http.StatusForbidden:
+                    reason = TokenSyncStatusReasonForbidden
+                default:
+                    reason = NetworkError
+                }
+            } else {
+                reason = InternalOperatorError
+            }
+            exchangeResp = SyncTokenSetResponseDTO{
+                Tokens: r.makeErrorTokens(client, reason),
+            }
+        }
+        responses = append(responses,
+            tokenSetResponseWithExchange{
+                Response: exchangeResp, Exchange: &client,
+            })
+    }
+
+    tokensByName := make(TokenResponses)
+    for _, response := range responses {
+        for name, t := range response.Response.Tokens {
+            tokensByName[name] = tokenWithExchange{
+                Token: t, Exchange: response.Exchange,
+            }
+        }
+    }
+    return &currentContourResp.Jwks, tokensByName, nil
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:app-cached-client},
+  caption={Класс CachedAuthJwtClient: кеширование токенов с учётом ротации}]
+public sealed class CachedAuthJwtClient : IAuthJwtClient
+{
+    private sealed record CachedToken(
+        string Token, DateTimeOffset ExpiresAtUtc,
+        DateTimeOffset IssuedAt, string Kid);
+
+    private const string AllTenants = "*";
+
+    private readonly IAuthJwtClient _innerClient;
+    private readonly ISigningCredentialStore _jwksStore;
+    private readonly IMemoryCache _cache;
+    private readonly IAuthJwtCacheMetrics _metrics;
+    private readonly ILogger<CachedAuthJwtClient> _logger;
+
+    public CachedAuthJwtClient(
+        IAuthJwtClient innerClient,
+        ISigningCredentialStore jwksStore,
+        IMemoryCache cache,
+        IAuthJwtCacheMetrics metrics,
+        ILogger<CachedAuthJwtClient> logger)
+    {
+        _innerClient = innerClient;
+        _jwksStore = jwksStore;
+        _cache = cache;
+        _metrics = metrics;
+        _logger = logger;
+    }
+
+    public Task<GetJwksResponse> GetJwksAsync(
+        CancellationToken ct = default)
+        => _innerClient.GetJwksAsync(ct);
+
+    public async Task<GetTokenResponse> GetTokenAsync(
+        GetTokenRequest request, CancellationToken ct = default)
+    {
+        const string operation = "get_token";
+        var cacheKey = BuildCacheKey(request);
+
+        if (_cache.TryGetValue<CachedToken>(
+            cacheKey, out var cachedToken))
+        {
+            string? invalidationReason = "unreachable";
+            if (cachedToken is not null
+                && IsTokenStillValid(
+                    cachedToken, out invalidationReason))
+            {
+                _metrics.RecordCacheHit(operation);
+                return new GetTokenResponse
+                {
+                    Token = cachedToken.Token,
+                    ExpiresAt = cachedToken.ExpiresAtUtc,
+                    IssuedAt = cachedToken.IssuedAt,
+                    Kid = cachedToken.Kid
+                };
+            }
+            _cache.Remove(cacheKey);
+            _metrics.RecordInvalidation(
+                operation, invalidationReason);
+        }
+
+        _metrics.RecordCacheMiss(operation);
+        var response =
+            await _innerClient.GetTokenAsync(request, ct);
+        CacheToken(cacheKey, operation, response);
+        return response;
+    }
+
+    private bool IsTokenStillValid(
+        CachedToken token,
+        [NotNullWhen(false)] out string? invalidationReason)
+    {
+        if (token.ExpiresAtUtc <= DateTime.UtcNow)
+        {
+            invalidationReason = "ttl_expired";
+            return false;
+        }
+        var primaryKey =
+            _jwksStore.GetPublicKeys().FirstOrDefault();
+        if (primaryKey is null)
+        {
+            invalidationReason = "key_rotated";
+            return false;
+        }
+        if (token.Kid != primaryKey.Kid)
+        {
+            invalidationReason = "key_rotated";
+            return false;
+        }
+        invalidationReason = null;
+        return true;
+    }
+
+    private DateTimeOffset CalculateExpiration(
+        IAuthJwtToken token)
+    {
+        var tokenLifetime = token.ExpiresAt - token.IssuedAt;
+        if (tokenLifetime < TimeSpan.FromMinutes(1))
+            return DateTimeOffset.UtcNow.AddSeconds(-1);
+
+        var bufferTime = tokenLifetime * 0.5;
+        TimeSpan minBuffer, maxBuffer;
+        if (tokenLifetime < TimeSpan.FromMinutes(10))
+        {
+            minBuffer = TimeSpan.FromSeconds(30);
+            maxBuffer = TimeSpan.FromMinutes(2);
+        }
+        else if (tokenLifetime < TimeSpan.FromHours(1))
+        {
+            minBuffer = TimeSpan.FromMinutes(1);
+            maxBuffer = TimeSpan.FromMinutes(10);
+        }
+        else
+        {
+            minBuffer = TimeSpan.FromMinutes(5);
+            maxBuffer = TimeSpan.FromMinutes(30);
+        }
+
+        bufferTime = TimeSpan.FromMilliseconds(Math.Clamp(
+            bufferTime.TotalMilliseconds,
+            minBuffer.TotalMilliseconds,
+            maxBuffer.TotalMilliseconds));
+
+        var absoluteMaxBuffer = tokenLifetime * 0.5;
+        if (bufferTime > absoluteMaxBuffer)
+            bufferTime = absoluteMaxBuffer;
+
+        var expirationTime = token.ExpiresAt - bufferTime;
+        if (expirationTime <= DateTimeOffset.UtcNow)
+            return DateTimeOffset.UtcNow.AddSeconds(-1);
+        return expirationTime;
+    }
+}
+
+static file class DictionaryUtils
+{
+    public static string ComputeHash(
+        IReadOnlyDictionary<string, object> dictionary)
+    {
+        if (dictionary.Count == 0) return "empty";
+        var sortedClaims = dictionary.ToArray();
+        Array.Sort(sortedClaims,
+            (a, b) => StringComparer.Ordinal.Compare(
+                a.Key, b.Key));
+        var hash = new XxHash64();
+        foreach (var (key, value) in sortedClaims)
+        {
+            hash.Append(Encoding.UTF8.GetBytes(key));
+            hash.Append(":"u8);
+            HashValue(hash, value);
+            hash.Append(";"u8);
+        }
+        return hash.GetCurrentHashAsUInt64()
+            .ToString("x16", CultureInfo.InvariantCulture);
+    }
+
+    private static void HashValue(XxHash64 hash, object value)
+    {
+        switch (value)
+        {
+            case string s:
+                hash.Append(Encoding.UTF8.GetBytes(s));
+                break;
+            case int i:
+                Span<byte> ib = stackalloc byte[sizeof(int)];
+                BitConverter.TryWriteBytes(ib, i);
+                hash.Append(ib); break;
+            case long l:
+                Span<byte> lb = stackalloc byte[sizeof(long)];
+                BitConverter.TryWriteBytes(lb, l);
+                hash.Append(lb); break;
+            case bool b:
+                hash.Append(b ? "1"u8 : "0"u8); break;
+            case double d:
+                Span<byte> db =
+                    stackalloc byte[sizeof(double)];
+                BitConverter.TryWriteBytes(db, d);
+                hash.Append(db); break;
+            case null:
+                hash.Append("n"u8); break;
+            default:
+                var json = JsonSerializer.Serialize(value);
+                hash.Append(Encoding.UTF8.GetBytes(json));
+                break;
+        }
+    }
+}
+\end{lstlisting}

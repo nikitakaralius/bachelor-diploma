@@ -1,24 +1,1193 @@
-\chapter{Название третьей главы: разработка программного обеспечения} \label{ch3}
+\chapter{Разработка программного обеспечения}\label{ch3}
 
-% не рекомендуется использовать отдельную section <<введение>> после лета 2020 года
-%\section{Введение} \label{ch3:intro}
+В предыдущей главе спроектирована архитектура системы авторизации,
+определены компоненты и их взаимодействие.
+Данная глава посвящена реализации спроектированной системы.
 
-Хорошим стилем является наличие введения к главе. Во введении может быть описана цель написания главы, а также приведена краткая структура главы. 
-	
-\section{Название параграфа} \label{ch3:sec1}
+Автор руководил разработкой системы
+и непосредственно реализовал следующие модули:
+\begin{itemize}
+  \item В микросервисе auth-jwt~--- генерацию и оптимизацию подписи токенов,
+    механизм enforced claims, эндпоинт SyncTokenSet,
+    pipeline ротации ключей, слой доступа к данным.
+  \item Kubernetes-оператор auth-jwt-operator~--- полностью.
+  \item В Terraform Provider~--- реализацию ресурса клиента авторизации.
+  \item Terraform-модуль конфигурации клиентов~--- полностью.
+  \item В клиентской библиотеке Mindbox.Authentication~---
+    оптимизацию кеширования токенов, механизм упреждающего обновления,
+    определение валидности токена при ротации ключей.
+\end{itemize}
 
-\section{Название параграфа} \label{ch3:sec2}
+Далее описываются ключевые и нестандартные решения
+в реализации каждого компонента.
 
-%\FloatBarrier % заставить рисунки и другие подвижные (float) элементы остановиться
+\section{Микросервис авторизации auth-jwt}\label{sec:auth-jwt-impl}
 
+Микросервис auth-jwt~--- центральный компонент системы,
+реализующий генерацию токенов, ротацию ключей,
+управление клиентами и доверенными эмитентами.
+Реализован на C\# с использованием ASP.NET Core
+и следует слоистой архитектуре, описанной в разделе~\ref{sec:architecture}.
 
-\section{Выводы} \label{ch3:conclusion}
+\subsection{Генерация токенов и оптимизация подписи}\label{subsec:token-generation}
 
-Текст выводов по главе \thechapter.
+Генерация JWT~--- наиболее частая операция auth-jwt.
+Подпись токена выполняется алгоритмом RSA-SHA512:
+микросервис загружает закрытый ключ,
+формирует \texttt{SecurityTokenDescriptor} с набором claims
+и вызывает \texttt{JsonWebTokenHandler.CreateToken}
+(листинг~\ref{lst:token-generator},
+полный листинг~\ref{lst:app-token-generator}).
 
+Помимо claims, специфичных для конкретного клиента,
+во все токены добавляются стандартные утверждения,
+описанные в \taref{tab:standard-claims}.
 
-%% Вспомогательные команды - Additional commands
-%
-%\newpage % принудительное начало с новой страницы, использовать только в конце раздела
-%\clearpage % осуществляется пакетом <<placeins>> в пределах секций
-%\newpage\leavevmode\thispagestyle{empty}\newpage % 100 % начало новой страницы
+\begin{table}[h]
+  \centering
+  \caption{Стандартные утверждения, добавляемые во все токены}
+  \label{tab:standard-claims}
+  \begin{tabularx}{\textwidth}{l l X}
+    \hline
+    \textbf{Claim} & \textbf{Источник} & \textbf{Назначение} \\
+    \hline
+    \texttt{sub} & \texttt{ClientId} &
+      Идентификатор клиента авторизации,
+      определяющий, для кого выпущен токен \\
+    \texttt{iss} & Конфигурация &
+      Идентификатор эмитента (URL auth-jwt контура),
+      используется при межконтурной верификации \\
+    \texttt{kind} & Тип запроса &
+      Тип токена (\texttt{service}, \texttt{user}),
+      позволяющий различать сервисные и пользовательские токены \\
+    \texttt{exp}, \texttt{nbf}, \texttt{iat} & Время запроса &
+      Срок действия, начало действия и время выпуска~---
+      стандартные claim RFC~7519~\cite{RFC7519} \\
+    \hline
+  \end{tabularx}
+\end{table}
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:token-generator},
+  caption={Генерация JWT-токена в DefaultTokenGenerator}]
+public JwtToken GenerateToken(GenerateTokenRequest request)
+{
+    var claims = new Dictionary<string, object>(request.Claims)
+    {
+        [JwtRegisteredClaimNames.Sub] = request.ClientId,
+        [MindboxJwtConstants.OriginalIssuerClaim] = rsaOptions.CurrentValue.Issuer,
+        [MindboxJwtConstants.KindClaim] = request.Kind.StringValue
+    };
+
+    var tokenDescriptor = new SecurityTokenDescriptor
+    {
+        Issuer = rsaOptions.CurrentValue.Issuer,
+        TokenType = "JWT",
+        SigningCredentials = GetSigningCredentials(SecurityAlgorithms.RsaSha512),
+        Expires = request.UtcNow.AddSeconds(request.TtlSeconds),
+        NotBefore = request.UtcNow,
+        IssuedAt = request.UtcNow,
+        Claims = claims
+    };
+
+    return new JwtToken {
+        Jwt = _tokenHandler.CreateToken(tokenDescriptor),
+        Kid = tokenDescriptor.SigningCredentials.Kid };
+}
+\end{lstlisting}
+
+В ходе эксплуатации было обнаружено,
+что секция \texttt{TokenGeneration}
+занимала в среднем 11,4~мс на запрос (\firef{fig:token-gen-compare}).
+Профилирование выявило причину:
+закрытый ключ хранился в формате PEM,
+и при каждом запросе выполнялся его парсинг
+через вызов OpenSSL (\firef{fig:memory-dump}).
+Согласно снимку распределения процессорного времени,
+50\% приходилось
+на декодирование PEM-представления ключа.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/memory-dump.png}
+  \caption{Профиль процессорного времени: 50\% приходится на парсинг PEM-ключа}
+  \label{fig:memory-dump}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/token-generation-before.png}\\[0.5em]
+  \includegraphics[width=\textwidth]{diagrams/img/token-generation-after.png}
+  \caption{Среднее время генерации токена: до оптимизации~--- 11,4~мс (сверху),
+    после~--- 2,15~мс (снизу)}
+  \label{fig:token-gen-compare}
+\end{figure}
+
+Для устранения проблемы были выполнены два изменения.
+Во-первых, формат хранения ключа в Vault был переведён
+с PEM на JSON-представление компонент RSA
+(\texttt{N}, \texttt{E}, \texttt{D}, \texttt{P}, \texttt{Q}, \texttt{DP}, \texttt{DQ}, \texttt{QI}).
+Это позволило создавать объект \texttt{RSAParameters}
+прямым копированием полей
+без вызова криптографических функций парсинга.
+
+Во-вторых, объект \texttt{SigningCredentials}
+кешируется в памяти и переиспользуется между запросами.
+Инвалидация кеша происходит только при ротации ключа~---
+событии, происходящем раз в неделю.
+
+Результаты оптимизации измерены
+на контуре Beta при 100~RPS в течение 10~минут.
+Среднее время генерации токена снизилось
+с 11,4~мс до 2,15~мс~--- в 5,3~раза (\firef{fig:token-gen-compare}).
+Потребление CPU снизилось
+с 2,8 ядер до 0,85 ядра~--- в 3,3~раза (\firef{fig:cpu-compare}).
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.49\textwidth]{diagrams/img/cpu-usage-before.png}
+  \hfill
+  \includegraphics[width=0.49\textwidth]{diagrams/img/cpu-usage-after.png}
+  \caption{Потребление CPU при 100~RPS: до оптимизации~--- 2,8 ядер (слева),
+    после~--- 0,85 ядра (справа)}
+  \label{fig:cpu-compare}
+\end{figure}
+
+\subsection{Федеративная авторизация с группами доступа}\label{subsec:federated-auth}
+
+Генерация токенов~--- лишь одна сторона работы auth-jwt.
+Прежде чем выпустить токен, необходимо аутентифицировать запрашивающую сторону.
+Микросервис auth-jwt принимает запросы от разнородных систем:
+Kubernetes, GitLab CI, Octopus Deploy,
+экземпляров auth-jwt других контуров.
+Каждая из этих систем подписывает токены собственным ключом.
+Для унификации проверки спроектирован механизм
+федеративной авторизации с группами доступа.
+
+Группа доступа~--- именованная категория доверенных эмитентов.
+При регистрации доверенного эмитента ему назначается одна или несколько групп.
+Каждый эндпоинт auth-jwt декларирует, какие группы имеют к нему доступ,
+через атрибут \texttt{FederatedAuthorize} (листинг~\ref{lst:federated-attr}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:federated-attr},
+  caption={Атрибут федеративной авторизации и его применение}]
+public sealed class FederatedAuthorizeAttribute
+    : TrustedIssuersAuthorizeAttribute
+{
+    public FederatedAuthorizeAttribute(string[] accessGroups) : base(accessGroups)
+    {
+        AuthenticationSchemes = $"{SchemeNames.Default},{SchemeNames.TrustedIssuers}";
+    }
+}
+
+// Применение на эндпоинте генерации токена:
+[FederatedAuthorize([
+    AccessGroups.ExternalAuthJwt,
+    AccessGroups.Octopus,
+    AccessGroups.CurrentContour,
+    AccessGroups.GitLab,
+    AccessGroups.Teleport
+])]
+public async Task<TokenResponse> GetToken(...)
+\end{lstlisting}
+
+Атрибут задаёт две схемы аутентификации:
+стандартную (для токенов, выпущенных самим auth-jwt)
+и \texttt{TrustedIssuers} (для токенов внешних эмитентов).
+При обработке запроса обработчик \texttt{TrustedIssuersAuthenticationHandler}
+фильтрует доверенных эмитентов по пересечению их групп
+с группами, указанными в атрибуте эндпоинта.
+В системе определены пять групп доступа (\taref{tab:access-groups}).
+
+\begin{table}[h]
+  \centering
+  \caption{Группы доступа к эндпоинтам auth-jwt}
+  \label{tab:access-groups}
+  \begin{tabularx}{\textwidth}{l X}
+    \hline
+    \textbf{Группа} & \textbf{Доверенные эмитенты} \\
+    \hline
+    CurrentContour   & Kubernetes-кластеры текущего контура \\
+    Octopus          & Octopus Deploy (оркестратор развёртывания) \\
+    GitLab           & GitLab CI (CI/CD-система) \\
+    Teleport         & Teleport (SSO-система для разработчиков) \\
+    ExternalAuthJwt  & Экземпляры auth-jwt других контуров \\
+    \hline
+  \end{tabularx}
+\end{table}
+
+\subsection{Механизм enforced claims}\label{subsec:enforced-claims}
+
+После аутентификации запрашивающей стороны
+необходимо убедиться, что она имеет право выпустить токен
+от имени конкретного клиента.
+Эту задачу решает механизм enforced claims~---
+гарантирующий, что запрашивающая сторона имеет право
+выпустить токен от имени конкретного клиента авторизации.
+Каждому клиенту при регистрации задаётся набор обязательных утверждений:
+пар <<ключ~--- допустимые значения>>.
+При запросе токена auth-jwt проверяет,
+что входящий токен запрашивающей стороны содержит
+все обязательные утверждения с допустимыми значениями
+(листинг~\ref{lst:enforce-claims}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:enforce-claims},
+  caption={Метод EnforceClientClaims}]
+private async Task<AuthClient> EnforceClientClaims(
+    string clientId, IDiagnosticContext dc, CancellationToken ct)
+{
+    AuthClient? client;
+    using (dc.Measure("GetClientFromDb"))
+        client = await authClientsRepository
+            .GetCachedAuthClientAsync(clientId, ct);
+
+    using var _ = dc.Measure("EnforceClientClaims");
+    if (client is null || client.IsDeleted)
+        throw new UnauthorizedAccessException("Invalid ClientId");
+
+    foreach (var (claim, allowedValue) in client.EnforcedClaims)
+    {
+        var matchedClaims = HttpContext.User.FindAll(claim).ToList();
+        if (matchedClaims.Count < 1)
+            throw new AccessDeniedException(
+                $"Claim '{claim}' is not present");
+
+        var isAllowed = matchedClaims
+            .Any(c => allowedValue.Contains(c.Value));
+        if (!isAllowed)
+            throw new AccessDeniedException(
+                $"Claim '{claim}' value is not allowed");
+    }
+    return client;
+}
+\end{lstlisting}
+
+Например, для Kubernetes-клиента enforced claim~---
+\texttt{kubernetes.io:namespace} со значением, равным имени неймспейса микросервиса.
+Это означает, что только под из соответствующего неймспейса
+сможет запросить токен от имени этого клиента.
+Enforced claims устраняют угрозу повышения привилегий:
+даже при компрометации одного микросервиса
+злоумышленник сможет запросить только те токены,
+которые разрешены для этого микросервиса.
+
+\subsection{Измерение производительности}\label{subsec:diagnostic-context}
+
+Все перечисленные механизмы составляют критический путь обработки запроса.
+Для контроля задержки
+запросы к auth-jwt инструментированы
+через \texttt{DiagnosticContext}~---
+обёртку, измеряющую время выполнения секций обработки запроса.
+В листинге~\ref{lst:enforce-claims} видно использование
+\texttt{dc.Measure("GetClientFromDb")} и \texttt{dc.Measure("EnforceClientClaims")}:
+каждый вызов создаёт \texttt{IDisposable},
+который при освобождении записывает длительность в метрику Prometheus.
+Это позволяет строить дашборды с декомпозицией времени обработки
+по секциям: получение клиента из кеша/БД,
+проверка enforced claims, генерация токена.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/diagnostic-context.png}
+  \caption{Распределение времени обработки запроса GetToken по секциям}
+  \label{fig:diagnostic-grafana}
+\end{figure}
+
+\subsection{Эндпоинт SyncTokenSet}\label{subsec:sync-token-set}
+
+До сих пор рассматривались эндпоинты,
+вызываемые микросервисами напрямую.
+Однако в спроектированной архитектуре
+большинство микросервисов получают токены не напрямую,
+а через Kubernetes-оператор (раздел~\ref{sec:delivery}).
+Для взаимодействия с оператором в auth-jwt реализован
+эндпоинт \texttt{SyncTokenSet}~--- специальный API,
+предназначенный исключительно для оператора.
+Оператор отправляет текущее состояние токенов микросервиса,
+а auth-jwt определяет, какие из них необходимо обновить.
+Решение принимается методом \texttt{ShouldRefreshToken}
+(листинг~\ref{lst:should-refresh}),
+проверяющим четыре условия.
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:should-refresh},
+  caption={Метод ShouldRefreshToken: четыре условия обновления}]
+private bool ShouldRefreshToken(
+    string primaryKid,
+    TokenSyncRequest token,
+    TokenPolicy persistedPolicy,
+    DateTime utcNow,
+    out TokenSyncStatusReason reason)
+{
+    if (token.LastUpdatedAtUtc is null)
+    { reason = TokenSyncStatusReason.InitialRequest; return true; }
+
+    if (utcNow - token.LastUpdatedAtUtc > TokenConstants.DefaultTokenRotationInterval)
+    { reason = TokenSyncStatusReason.WithinRefreshWindow; return true; }
+
+    if (token.Kid != primaryKid)
+    { reason = TokenSyncStatusReason.KeyRotated; return true; }
+
+    if (token.Policy.Version != persistedPolicy.Version)
+    { reason = TokenSyncStatusReason.PolicyChanged; return true; }
+
+    reason = default;
+    return false;
+}
+\end{lstlisting}
+
+\begin{enumerate}
+  \item \texttt{InitialRequest}~--- оператор ещё ни разу не получал токен.
+  \item \texttt{WithinRefreshWindow}~--- плановое обновление по истечении интервала.
+  \item \texttt{KeyRotated}~--- KID токена не совпадает с KID текущего Primary-ключа,
+    токен был подписан старым ключом и подлежит обновлению.
+  \item \texttt{PolicyChanged}~--- изменение политики клиента
+    (например, добавление нового разрешения).
+\end{enumerate}
+
+Если ни одно условие не выполнено,
+токен возвращается со статусом \texttt{Retained}~--- обновление не требуется.
+
+\subsection{Шаг ротации: CreateSecondaryKeyStep}\label{subsec:rotation-step-impl}
+
+Помимо генерации токенов и взаимодействия с оператором,
+auth-jwt отвечает за автоматическую ротацию ключей подписи.
+Процесс ротации реализован как последовательность
+из семи шагов (листинг~\ref{lst:rotation-steps}),
+каждый из которых реализует интерфейс \texttt{IRotationStep}.
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:rotation-steps},
+  caption={Последовательность шагов ротации ключей}]
+string[] rotationStepsInOrder =
+[
+    CreateSecondaryKeyStep.Name,
+    InitialSyncSharedPemStep.Name,
+    AfterNewKeyCreatedStep.Name,
+    SwapPrimaryAndSecondaryKeysStep.Name,
+    BeforeOldKeyDeletedStep.Name,
+    DeleteSecondaryKeyStep.Name,
+    FinalSyncSharedPemStep.Name
+];
+\end{lstlisting}
+
+Каждый шаг соответствует атомарной операции,
+описанной в разделе~\ref{sec:rotation-design}.
+Шаги \texttt{AfterNewKeyCreated} и \texttt{BeforeOldKeyDeleted}~---
+это расширяемые точки, реализующие ping-механизм с grace-периодом.
+Шаги \texttt{InitialSyncSharedPem} и \texttt{FinalSyncSharedPem}
+обеспечивают синхронизацию открытых ключей с внешними потребителями.
+
+В листинге~\ref{lst:create-secondary} приведён
+первый шаг~--- генерация Secondary-ключа
+(полный листинг~\ref{lst:app-create-secondary}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:create-secondary},
+  caption={CreateSecondaryKeyStep: генерация нового ключа}]
+public async Task<StepResult> ExecuteAsync(
+    RsaRotationStepContext context, CancellationToken ct)
+{
+    var currentSecret = await secretStorage.ReadRsaSecretAsync();
+
+    if (currentSecret.Secondary is not null)
+    {
+        logger.LogWarning("Secondary key already exists, skipping");
+        return StepResult.Success(SystemName);
+    }
+
+    var targetRsa = RsaHelper.GenerateRsa(rsaOptions.CurrentValue.KeySize);
+
+    await secretStorage.UpdateRsaSecretAsync(new()
+    {
+        Primary = currentSecret.Primary,
+        Secondary = targetRsa,
+        Version = currentSecret.CurrentVersion
+    });
+
+    return StepResult.Success(SystemName);
+}
+\end{lstlisting}
+
+Шаг является идемпотентным:
+если Secondary-ключ уже существует (например, после рестарта пода),
+операция пропускается.
+Это гарантирует безопасность повторного выполнения
+при сбоях инфраструктуры.
+Состояние текущего шага ротации хранится в базе данных,
+поэтому после рестарта планировщик Quartz.NET
+возобновит ротацию с того шага, на котором она была прервана.
+
+\subsection{Работа с базой данных}\label{subsec:db-access}
+
+Данные системы авторизации хранятся в PostgreSQL.
+Доступ к ним реализован через паттерн Repository
+с использованием Entity Framework Core.
+В листинге~\ref{lst:trusted-issuers-repo} приведён
+фрагмент репозитория доверенных эмитентов.
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:trusted-issuers-repo},
+  caption={TrustedIssuersRepository: аудит и чтение без отслеживания}]
+public class TrustedIssuersRepository(
+    DatabaseContext context,
+    IEventLogRepository eventLogRepository,
+    IDateTimeProvider dateTimeProvider) : ITrustedIssuersRepository
+{
+    private DbSet<TrustedIssuer> Set => context.Set<TrustedIssuer>();
+
+    public async Task<List<TrustedIssuer>> GetAllAsync(CancellationToken ct)
+        => await Set.AsNoTracking().ToListAsync(ct);
+
+    public async Task AddIssuerAsync(
+        TrustedIssuer issuer, UserDetails user, CancellationToken ct)
+    {
+        Set.Add(issuer);
+        await eventLogRepository.LogIssuerCreatedAsync(issuer, user, ct);
+    }
+
+    public async Task DeleteIssuerAsync(
+        string issuerName, UserDetails user, CancellationToken ct)
+    {
+        var issuer = await Set.FirstOrDefaultAsync(
+            x => x.IssuerName == issuerName, ct)
+            ?? throw new ResourceNotFoundException("Issuer not found");
+        Set.Remove(issuer);
+        await eventLogRepository.LogIssuerDeletedAsync(
+            issuer.Id, issuerName, issuer.StorageType, user, ct);
+    }
+}
+\end{lstlisting}
+
+Два ключевых решения.
+Во-первых, \texttt{AsNoTracking()} для операций чтения~---
+отключает отслеживание изменений в EF Core,
+что снижает потребление памяти при чтении больших коллекций.
+Во-вторых, каждая мутация (создание, обновление, удаление)
+сопровождается записью в журнал событий
+через \texttt{IEventLogRepository} в рамках той же транзакции.
+Это реализует Outbox-паттерн, описанный в разделе~\ref{sec:observability}:
+событие гарантированно сохраняется при успешном завершении операции
+и впоследствии доставляется в SIEM через Kafka.
+
+\section{Kubernetes-оператор}\label{sec:operator-impl}
+
+Микросервис auth-jwt генерирует токены,
+но микросервисы платформы не обращаются к нему напрямую~---
+между ними находится Kubernetes-оператор,
+спроектированный в разделе~\ref{sec:delivery}.
+Оператор auth-jwt-operator реализован на Go
+с использованием Operator SDK
+и обеспечивает доставку токенов и JWKS
+от auth-jwt до микросервисов через Kubernetes Secret.
+
+\subsection{Custom Resource: AuthJwtConfigSpec}\label{subsec:cr-spec}
+
+Желаемое состояние авторизации для каждого микросервиса
+описывается Custom Resource (CR) \texttt{AuthJwtConfig}.
+В листинге~\ref{lst:cr-spec} приведена структура CR.
+
+\begin{lstlisting}[language=Go,
+  label={lst:cr-spec},
+  caption={Структура Custom Resource AuthJwtConfigSpec}]
+type AuthJwtConfigSpec struct {
+    ReconcileInterval metav1.Duration `json:"reconcileInterval"`
+    SecretName        string          `json:"secretName"`
+    Contour           string          `json:"contour"`
+    IsCdpDeploy       bool            `json:"isCdpDeploy,omitempty"`
+    Tokens            []TokenSpec     `json:"tokens,omitempty"`
+}
+
+type TokenSpec struct {
+    Name     string        `json:"name"`
+    Tenant   *string       `json:"tenant,omitempty"`
+    Policy   string        `json:"policy"`
+    Exchange *ExchangeSpec `json:"exchange,omitempty"`
+}
+
+type ExchangeSpec struct {
+    ClientID   string `json:"clientId"`
+    AuthJwtURL string `json:"authJwtUrl"`
+}
+\end{lstlisting}
+
+Массив \texttt{Tokens} описывает, какие токены нужны микросервису:
+имя токена, политику и опциональные параметры межконтурного обмена.
+Если указан \texttt{Exchange}, оператор выполнит Token Exchange
+(раздел~\ref{subsec:token-exchange})
+с экземпляром auth-jwt целевого контура.
+
+\subsection{Цикл реконсиляции}\label{subsec:reconcile}
+
+На основе описанной спецификации
+оператор выполняет периодическую сверку (reconciliation)
+с интервалом, заданным в поле \texttt{ReconcileInterval}.
+Метод \texttt{Reconcile}~--- точка входа оператора,
+вызываемая Kubernetes при изменении CR
+или по истечении этого интервала.
+В листинге~\ref{lst:reconcile} приведён его сокращённый код.
+
+\begin{lstlisting}[language=Go,
+  label={lst:reconcile},
+  caption={Метод Reconcile: цикл сверки оператора}]
+func (r *AuthJwtConfigReconciler) Reconcile(
+    ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+
+    cfg, err := r.Resource.GetAuthJwtConfig(ctx, req)
+    if cfg == nil { return ctrl.Result{}, nil }
+    if cfg.GetDeletionTimestamp() != nil { return ctrl.Result{}, nil }
+
+    defer func() {
+        r.Resource.UpdateReconcileTimestamp(ctx, cfg)
+    }()
+
+    secretPath := client.ObjectKey{
+        Namespace: req.Namespace, Name: cfg.Spec.SecretName}
+
+    authSecret, existed, _ := r.Secrets.Read(ctx, secretPath)
+    r.AuthJwt.Sync(ctx, cfg, &authSecret, &authjwt.K8sSATokenSource{})
+    r.Secrets.Write(ctx, authSecret, secretPath, existed)
+    r.Resource.UpdateStatus(ctx, cfg)
+
+    return ctrl.Result{RequeueAfter: cfg.Spec.ReconcileInterval.Duration}, nil
+}
+\end{lstlisting}
+
+Конструкция \texttt{defer} гарантирует,
+что время последней реконсиляции будет записано в статус CR
+даже при ошибке на последующих этапах~---
+это критично для мониторинга работоспособности оператора.
+Возвращаемый \texttt{RequeueAfter} планирует следующую сверку
+через интервал, заданный в спецификации CR.
+
+Оператор обрабатывает только CR своего контура
+благодаря предикату фильтрации (листинг~\ref{lst:contour-predicate}).
+Это необходимо, поскольку в ряде Kubernetes-кластеров
+одновременно размещены микросервисы разных контуров
+(например, Beta и Gamma),
+и каждый контур обслуживается собственным экземпляром оператора.
+
+\begin{lstlisting}[language=Go,
+  label={lst:contour-predicate},
+  caption={Фильтрация CR по контуру и exponential backoff}]
+contourPredicate := predicate.NewPredicateFuncs(
+    func(obj client.Object) bool {
+        cfg, ok := obj.(*authjwtv1.AuthJwtConfig)
+        return ok && cfg.Spec.Contour == r.Contour
+    })
+
+ctrl.NewControllerManagedBy(mgr).
+    WithEventFilter(predicate.And(
+        contourPredicate,
+        predicate.GenerationChangedPredicate{},
+    )).
+    WithOptions(controller.Options{
+        RateLimiter: workqueue.NewTypedItemExponentialFailureRateLimiter[
+            reconcile.Request](30*time.Second, 5*time.Minute),
+    }).
+    Complete(r)
+\end{lstlisting}
+
+Дополнительно настроен exponential backoff:
+при ошибке повторная попытка через 30~секунд,
+при последующих ошибках~--- удвоение интервала до 5~минут.
+Предикат \texttt{GenerationChangedPredicate}
+игнорирует обновления, изменяющие только статус CR,
+предотвращая бесконечный цикл реконсиляции.
+
+\subsection{Двухфазная синхронизация токенов}\label{subsec:two-phase-sync}
+
+Внутри метода \texttt{Sync}, вызываемого на этапе реконсиляции,
+реализована двухфазная стратегия синхронизации,
+учитывающая межконтурное взаимодействие
+(листинг~\ref{lst:send-sync},
+полный листинг~\ref{lst:app-sync-service}).
+
+\begin{lstlisting}[language=Go,
+  label={lst:send-sync},
+  caption={Двухфазная синхронизация: текущий и внешние контуры}]
+func (r *SyncService) sendSyncTokenSetRequests(
+    clients SyncTokenSetClients, cfg *authjwtv1.AuthJwtConfig,
+    ts TokenSource) (*JWKsDTO, TokenResponses, error) {
+
+    // Фаза 1: текущий контур (ошибка останавливает реконсиляцию)
+    currentResp, err := r.Client.SyncTokenSet(SyncTokenSetRequest{
+        URL:         r.Client.CurrentContourURL(),
+        ClientID:    cfg.EffectiveClientID(),
+        TokenSource: ts,
+        TokenSetDTO: clients.ContourClient,
+    })
+    if err != nil {
+        return nil, nil, fmt.Errorf("current contour request: %w", err)
+    }
+
+    // Фаза 2: внешние контуры (ошибка создаёт failed-токены)
+    for _, client := range clients.ExchangeClients {
+        exchangeResp, err := r.Client.SyncTokenSet(SyncTokenSetRequest{
+            URL:      client.AuthJwtURL,
+            ClientID: client.ClientID,
+            TokenSource: &StringTokenSource{
+                Value: currentResp.ExchangeToken.Token},
+            TokenSetDTO: client.TokenSetDTO,
+        })
+        if err != nil {
+            exchangeResp = SyncTokenSetResponseDTO{
+                Tokens: r.makeErrorTokens(client, reason)}
+        }
+        responses = append(responses, exchangeResp)
+    }
+    return &currentResp.Jwks, tokensByName, nil
+}
+\end{lstlisting}
+
+В первой фазе оператор синхронизирует токены с auth-jwt текущего контура.
+Ошибка на этом этапе останавливает реконсиляцию~---
+без ключей текущего контура дальнейшие операции бессмысленны.
+
+Во второй фазе оператор выполняет Token Exchange с внешними контурами,
+используя exchange-токен, полученный в первой фазе.
+Критическое решение: ошибка внешнего контура \textbf{не останавливает} реконсиляцию.
+Вместо этого создаётся запись со статусом \texttt{failed},
+а ранее полученный токен сохраняется в Secret до истечения срока действия.
+Это реализует принцип максимальной защиты:
+если микросервису нужен токен для контура Infra,
+а Infra временно недоступен,
+микросервис продолжит работать с предыдущим валидным токеном.
+
+\section{Terraform Provider и модуль}\label{sec:terraform-impl}
+
+Микросервис авторизации и оператор обеспечивают выпуск и доставку токенов,
+однако для их работы необходима конфигурация~---
+клиенты, политики, доверенные эмитенты.
+Управление этой конфигурацией
+реализовано через два компонента:
+Terraform Provider, обеспечивающий взаимодействие Terraform с API auth-jwt,
+и Terraform-модуль, описывающий всех клиентов платформы.
+
+\subsection{Terraform Provider authjwt}\label{subsec:tf-provider}
+
+Terraform Provider реализован на Go
+с использованием Terraform Plugin Framework.
+Provider публикуется в Artifactory~---
+корпоративное хранилище артефактов~---
+под пространством имён \texttt{mindbox-private/authjwt},
+поскольку содержит внутреннюю логику компании
+и не предназначен для публичного реестра Terraform.
+
+Provider поддерживает два способа аутентификации:
+прямой токен (для ручного применения)
+и Token Exchange (для CI/CD-пайплайнов).
+В CI/CD-пайплайне GitLab выпускает JWT для задачи,
+Provider обменивает его на токен auth-jwt
+и использует для применения конфигурации.
+Это исключает хранение долгоживущих секретов в CI/CD.
+
+Provider реализует CRUD-операции для двух типов ресурсов:
+\texttt{authjwt\_client} и \texttt{authjwt\_trusted\_issuer}.
+В листинге~\ref{lst:tf-create} приведён метод создания клиента.
+
+\begin{lstlisting}[language=Go,
+  label={lst:tf-create},
+  caption={Метод Create ресурса authjwt\_client}]
+func (r *authClientResource) Create(ctx context.Context,
+    req resource.CreateRequest, resp *resource.CreateResponse) {
+
+    var plan AuthClientResourceModel
+    resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+
+    apiReq := AuthClientCreateRequest{
+        ClientID:       plan.ClientID.ValueString(),
+        TokenPolicies:  make(map[string]TokenPolicyDto),
+        EnforcedClaims: plan.EnforcedClaims,
+    }
+    for k, v := range plan.TokenPolicies {
+        apiReq.TokenPolicies[k] = TokenPolicyDto{
+            TTLSeconds:  v.TTLSeconds.ValueInt32(),
+            Permissions: perms,
+        }
+    }
+    apiResp, err := r.client.CreateAuthClient(ctx, apiReq)
+    if err != nil {
+        resp.Diagnostics.AddError("Create failed", err.Error())
+        return
+    }
+    state, _ := mapApiResponseToState(apiResp)
+    resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+\end{lstlisting}
+
+\subsection{Terraform-модуль}\label{subsec:tf-module}
+
+Provider реализует взаимодействие с API,
+но не определяет, какие клиенты должны существовать.
+Эту роль выполняет Terraform-модуль~--- единственный источник истины
+о конфигурации авторизации на платформе.
+Все клиенты описываются в блоке \texttt{locals}
+модуля \texttt{clients},
+а модуль применяется ко всем контурам.
+
+Ключевое решение~--- валидация на уровне Terraform.
+Модуль проверяет уникальность идентификаторов клиентов
+и корректность ссылок на политики токенов
+до применения конфигурации (листинг~\ref{lst:tf-validation}).
+
+\begin{lstlisting}[language=HCL,
+  label={lst:tf-validation},
+  caption={Валидация конфигурации в Terraform-модуле}]
+locals {
+  # Собрать все идентификаторы из всех источников
+  all_client_ids = concat(
+    keys(local.common_k8s_clients_normalized),
+    keys(local.common_octopus_clients_normalized),
+    keys(var.contour_k8s_clients))
+
+  # Найти дубликаты
+  unique_client_ids = toset(local.all_client_ids)
+  duplicated_client_ids = [
+    for id in local.unique_client_ids : id
+    if length([for cid in local.all_client_ids : cid
+               if cid == id]) > 1 ]
+
+  # Проверить ссылки exchange-клиентов на политики
+  exchange_missing_policy_refs = {
+    for id in keys(local.all_exchange_clients) :
+    id => setsubtract(
+      local.exchange_requested_policy_refs[id],
+      local.exchange_available_policy_refs[id]) }
+}
+
+resource "authjwt_client" "k8s_client" {
+  for_each  = local.all_k8s_clients
+  client_id = each.key
+  enforced_claims = {
+    "kubernetes.io:namespace" = [each.key]
+  }
+  lifecycle {
+    precondition {
+      condition     = length(local.duplicated_client_ids) == 0
+      error_message = "Duplicate client IDs: ${join(", ",
+                       local.duplicated_client_ids)}"
+    }
+  }
+}
+\end{lstlisting}
+
+Блок \texttt{precondition} останавливает применение конфигурации,
+если обнаружены дубликаты идентификаторов~---
+ошибка выявляется на этапе \texttt{terraform plan} (\firef{fig:terraform-plan}),
+до внесения изменений в систему.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/terraform-plan.png}
+  \caption{Вывод terraform plan при применении конфигурации клиентов}
+  \label{fig:terraform-plan}
+\end{figure}
+
+\section{Клиентская библиотека Mindbox.Authentication}\label{sec:client-lib-impl}
+
+Предыдущие разделы описывали серверную часть системы~---
+auth-jwt, оператор и Terraform.
+На стороне каждого из 160~микросервисов
+работает клиентская библиотека, которая
+подключается ко всем микросервисам платформы
+и обеспечивает проверку входящих токенов,
+получение токенов для исходящих запросов
+и кеширование с учётом ротации ключей.
+
+\subsection{Декларативное конфигурирование}\label{subsec:declarative-config}
+
+Все возможности библиотеки активируются
+через единую точку конфигурации
+с использованием builder-паттерна
+(листинг~\ref{lst:builder}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:builder},
+  caption={Конфигурирование библиотеки Mindbox.Authentication}]
+builder.Services.AddMindboxAuthentication(
+    builder.Configuration, auth =>
+{
+    auth.UseAuthJwtConfig();
+    auth.AddAllowedIssuers(["https://auth-jwt.a.mindbox.ru"]);
+    auth.AddAuthJwtClient(client =>
+    {
+        client.BaseAddress = "https://auth-jwt.a.mindbox.ru";
+        client.ClientId = "auth-test-client-one";
+    });
+});
+builder.Services.AddMindboxAuthorization();
+\end{lstlisting}
+
+Метод \texttt{UseAuthJwtConfig()} активирует чтение токенов и JWKS
+из конфигурации, доставляемой оператором.
+\texttt{AddAllowedIssuers} задаёт список допустимых эмитентов~---
+токены с другим значением \texttt{iss} будут отклонены.
+\texttt{AddAuthJwtClient} регистрирует HTTP-клиент
+для динамического режима получения токенов.
+Все зависимости регистрируются через \texttt{TryAddSingleton},
+что позволяет потребителям подменять реализации при необходимости.
+
+\subsection{Доставка секретов через файловую систему}\label{subsec:file-delivery}
+
+Конфигурирование определяет, какие возможности библиотеки активны.
+Следующий вопрос~--- каким образом данные авторизации
+(токены и JWKS) попадают в библиотеку.
+Оператор записывает данные авторизации в Kubernetes Secret.
+Kubelet монтирует этот Secret как файл в файловую систему пода.
+Монтирование описано в общем Helm-чарте,
+используемом всеми микросервисами платформы (листинг~\ref{lst:helm-mount}).
+
+\begin{lstlisting}[language=HCL,
+  label={lst:helm-mount},
+  caption={Монтирование Secret как файла в Helm-чарте}]
+# Volume mount в контейнере:
+- name: auth-secrets
+  mountPath: "/app/auth-secrets"
+
+# Volume из Kubernetes Secret:
+- name: auth-secrets
+  secret:
+    secretName: {{ $.Values.authSecrets.k8sSecretName }}
+    items:
+      - key: auth.json
+        path: auth.json
+\end{lstlisting}
+
+Библиотека обнаруживает изменения файла
+через \texttt{PhysicalFileProvider}
+(листинг~\ref{lst:file-provider}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:file-provider},
+  caption={PhysicalFileProvider для отслеживания обновлений секретов}]
+PhysicalFileProvider authSecretsFileProvider =
+    new(Path.Combine(Environment.CurrentDirectory, "auth-secrets"))
+    {
+        UsePollingFileWatcher = true,
+        UseActivePolling = true
+    };
+
+builder.Configuration.AddJsonFile(
+    authSecretsFileProvider, "auth.json",
+    optional: false, reloadOnChange: true);
+\end{lstlisting}
+
+Цепочка обновления работает следующим образом:
+оператор записывает обновлённые данные в Kubernetes Secret;
+kubelet обновляет файл \texttt{auth.json} в файловой системе пода;
+\texttt{PhysicalFileProvider} периодически проверяет файл и обнаруживает изменение;
+конфигурация перезагружается, и \texttt{IOptionsMonitor<T>}
+уведомляет все зависимые компоненты~---
+в частности, хранилище токенов и хранилище JWKS.
+При этом под не перезапускается~---
+обновление происходит в рантайме.
+
+\subsection{Быстрое хеширование: XxHash64 и stackalloc}\label{subsec:xxhash}
+
+Помимо статических токенов, доставляемых через файловую систему,
+библиотека поддерживает динамический режим~---
+запрос токенов напрямую у auth-jwt.
+Логика кеширования динамических токенов реализована
+в классе \texttt{CachedAuthJwtClient}
+(полный листинг~\ref{lst:app-cached-client}).
+В динамическом режиме получения токенов
+библиотека кеширует токены по ключу,
+включающему набор claims запроса.
+Claims~--- произвольный словарь,
+и для построения компактного ключа кеша
+используется хеш-функция XxHash64
+(листинг~\ref{lst:xxhash}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:xxhash},
+  caption={Хеширование claims через XxHash64 с stackalloc}]
+static file class DictionaryUtils
+{
+    public static string ComputeHash(
+        IReadOnlyDictionary<string, object> dictionary)
+    {
+        var sortedClaims = dictionary.ToArray();
+        Array.Sort(sortedClaims,
+            (a, b) => StringComparer.Ordinal.Compare(a.Key, b.Key));
+
+        var hash = new XxHash64();
+        foreach (var (key, value) in sortedClaims)
+        {
+            hash.Append(Encoding.UTF8.GetBytes(key));
+            hash.Append(":"u8);
+            HashValue(hash, value);
+            hash.Append(";"u8);
+        }
+        return hash.GetCurrentHashAsUInt64()
+            .ToString("x16", CultureInfo.InvariantCulture);
+    }
+
+    private static void HashValue(XxHash64 hash, object value)
+    {
+        switch (value)
+        {
+            case int i:
+                Span<byte> intBytes = stackalloc byte[sizeof(int)];
+                BitConverter.TryWriteBytes(intBytes, i);
+                hash.Append(intBytes);
+                break;
+            case long l:
+                Span<byte> longBytes = stackalloc byte[sizeof(long)];
+                BitConverter.TryWriteBytes(longBytes, l);
+                hash.Append(longBytes);
+                break;
+            case string s:
+                hash.Append(Encoding.UTF8.GetBytes(s));
+                break;
+            // ... аналогично для double, float, bool
+        }
+    }
+}
+\end{lstlisting}
+
+Два решения обеспечивают производительность.
+Во-первых, XxHash64~\cite{xxHash}~--- некриптографическая хеш-функция,
+значительно быстрее SHA-256 при сопоставимом качестве распределения:
+на данных малого размера пропускная способность XxHash64
+достигает 19,4~ГБ/с против 1,5~ГБ/с у SHA-256~\cite{xxHash}.
+Здесь не требуется криптостойкость~---
+хеш используется только как ключ кеша.
+Во-вторых, \texttt{stackalloc}~\cite{DotNetStackalloc} выделяет память
+для числовых типов на стеке вместо кучи,
+что исключает аллокации и давление на сборщик мусора.
+Для числовых типов фиксированного размера
+(\texttt{int}~--- 4~байта, \texttt{long}~--- 8~байт)
+размер буфера известен на этапе компиляции,
+что делает \texttt{stackalloc} безопасным.
+
+\subsection{Упреждающее обновление токенов}\label{subsec:buffer-time}
+
+Кеширование решает проблему нагрузки,
+но порождает другую~---
+когда именно следует обновить кешированный токен?
+Библиотека обновляет токены заранее,
+до истечения их срока действия,
+чтобы избежать ситуации,
+когда микросервис использует просроченный токен
+в промежутке между истечением и обновлением.
+Время упреждения (buffer time) вычисляется
+по формуле~\eqref{eq:buffer-time}.
+
+\begin{equation}\label{eq:buffer-time}
+  T_{\text{buffer}} = \operatorname{clamp}\!\left(
+    0{,}5 \cdot T_{\text{TTL}},\;
+    T_{\text{min}},\;
+    T_{\text{max}}
+  \right),
+\end{equation}
+где $T_{\text{TTL}}$~--- время жизни токена,
+$T_{\text{min}}$ и $T_{\text{max}}$~---
+нижняя и верхняя границы буфера,
+зависящие от диапазона $T_{\text{TTL}}$.
+
+Токен считается истёкшим в момент $T_{\text{exp}} - T_{\text{buffer}}$,
+после чего библиотека запрашивает новый.
+Границы буфера выбраны эмпирически
+и приведены в \taref{tab:buffer-time}.
+
+\begin{table}[h]
+  \centering
+  \caption{Границы буфера упреждающего обновления}
+  \label{tab:buffer-time}
+  \begin{tabular}{l c c c}
+    \hline
+    $T_{\text{TTL}}$ & $T_{\text{min}}$ & $T_{\text{max}}$ & Пример буфера \\
+    \hline
+    $< 10$ мин  & 30 с   & 2 мин  & 5 мин $\rightarrow$ 2 мин \\
+    10 мин -- 1 ч & 1 мин  & 10 мин & 30 мин $\rightarrow$ 10 мин \\
+    $\geq 1$ ч  & 5 мин  & 30 мин & 10 ч $\rightarrow$ 30 мин \\
+    \hline
+  \end{tabular}
+\end{table}
+
+Для токена с TTL 5~минут буфер составит 2~минуты
+(50\% = 2,5 мин, ограничено $T_{\text{max}}$ = 2~мин),
+токен будет обновлён через 3~минуты после выпуска.
+Для токена с TTL 1~час буфер составит 10~минут,
+обновление~--- через 50~минут.
+Такая схема предотвращает массовое одновременное обновление токенов
+(cache stampede), распределяя запросы во времени.
+
+\subsection{Определение валидности токена}\label{subsec:token-validity}
+
+Упреждающее обновление определяет момент планового обновления.
+Однако токен может стать невалидным и по другим причинам~---
+например, при ротации ключей.
+Метод \texttt{IsTokenStillValid}
+определяет, пригоден ли кешированный токен для использования
+(листинг~\ref{lst:is-valid}).
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:is-valid},
+  caption={Метод IsTokenStillValid: три проверки валидности}]
+private bool IsTokenStillValid(
+    CachedToken token,
+    [NotNullWhen(false)] out string? invalidationReason)
+{
+    if (token.ExpiresAtUtc <= DateTime.UtcNow)
+    {
+        invalidationReason = "ttl_expired";
+        return false;
+    }
+
+    var primaryKey = _jwksStore.GetPublicKeys().FirstOrDefault();
+    if (primaryKey is null)
+    {
+        invalidationReason = "key_rotated";
+        return false;
+    }
+
+    if (token.Kid != primaryKey.Kid)
+    {
+        invalidationReason = "key_rotated";
+        return false;
+    }
+
+    invalidationReason = null;
+    return true;
+}
+\end{lstlisting}
+
+Первая проверка~--- истечение TTL с учётом буфера,
+описанного в предыдущем разделе.
+Вторая~--- отсутствие публичных ключей,
+что может означать проблему с доставкой JWKS.
+Третья~--- несовпадение KID токена с KID текущего Primary-ключа.
+
+Именно третья проверка обеспечивает реакцию на ротацию ключей:
+когда auth-jwt переключает Primary-ключ (шаг Swap),
+оператор доставляет обновлённый JWKS в Kubernetes Secret,
+\texttt{PhysicalFileProvider} обнаруживает изменение,
+и при следующем обращении к кешу библиотека видит,
+что KID токена не совпадает с новым Primary~---
+токен инвалидируется и запрашивается заново.
+Причина инвалидации записывается в метрику,
+что позволяет наблюдать волну обновлений при ротации.
+
+\section{Перевод микросервисов на новую систему авторизации}\label{sec:migration}
+
+Разработка компонентов системы~--- необходимое,
+но недостаточное условие для решения выявленных проблем.
+Чтобы новая система начала работать,
+каждый из 160~микросервисов платформы должен быть переведён
+с прямого доступа к закрытому ключу в Vault
+на получение токенов через auth-jwt.
+Для этого разработана процедура миграции,
+состоящая из семи шагов (\taref{tab:migration-steps}).
+
+\begin{table}[h]
+  \centering
+  \caption{Шаги перевода микросервиса на новую систему авторизации}
+  \label{tab:migration-steps}
+  \begin{tabularx}{\textwidth}{c X}
+    \hline
+    \textbf{Шаг} & \textbf{Описание} \\
+    \hline
+    1 & Зарегистрировать клиента в Terraform-модуле:
+        описать политики токенов, exchange-клиентов и enforced claims \\
+    2 & Подключить Helm-чарт \texttt{auth-jwt-config}:
+        создать Custom Resource для оператора,
+        настроить монтирование Secret \\
+    3 & Обновить версию библиотеки Mindbox.Authentication
+        и зависимых пакетов платформы \\
+    4 & Заменить регистрацию зависимостей:
+        добавить \texttt{PhysicalFileProvider},
+        вызвать \texttt{AddMindboxAuthentication} с новым builder-API \\
+    5 & Заменить код работы с токенами:
+        статические токены из Vault $\rightarrow$ \texttt{ITokenStore},
+        динамическая генерация $\rightarrow$ \texttt{IAuthJwtClient} \\
+    6 & Адаптировать тесты:
+        заменить \texttt{ITokenGenerator} на mock-обработчик аутентификации,
+        настроить docker-compose для CI с локальным оператором \\
+    7 & Удалить старые секреты из Vault:
+        статический JWT-токен и RSA-ключ \\
+    \hline
+  \end{tabularx}
+\end{table}
+
+Процедура спроектирована так,
+чтобы каждый микросервис мог быть переведён независимо от остальных.
+Во время миграции auth-jwt поддерживает как новую,
+так и старую систему авторизации одновременно:
+токены, подписанные старым ключом из Vault,
+остаются валидными до завершения перевода всех микросервисов.
+Это позволяет проводить миграцию инкрементально,
+без координации между командами.
+
+Для каждого шага разработана внутренняя инструкция
+с примерами кода и ссылками на эталонные merge request.
+Инструкция позволяет командам, не участвовавшим в разработке системы,
+самостоятельно перевести свой микросервис.
+
+Для ускорения миграции разработан навык
+для ИИ-агента Claude Code,
+автоматизирующий выполнение всех семи шагов процедуры.
+Навык принимает на вход имя микросервиса,
+анализирует его кодовую базу и выполняет необходимые изменения:
+регистрацию клиента в Terraform,
+обновление Helm-конфигурации,
+замену кода работы с токенами
+и адаптацию тестов.
+Результат проверяется второй моделью,
+выполняющей контроль качества.
+Разделение ролей генератора и ревьюера обусловлено тем,
+что языковые модели склонны к предвзятости
+при оценке собственных результатов~\cite{Zahraei2026}:
+использование независимой модели для проверки
+повышает вероятность обнаружения ошибок.
+
+Автоматизация позволила в сжатые сроки перевести
+микросервисы платформы,
+в том числе написанные на Python и JavaScript~---
+языках, в которых у команды авторизации мало экспертизы.
+
+На момент написания работы все микросервисы платформы
+успешно переведены на новую систему авторизации на всех контурах.
+
+\section{Выводы по главе}\label{sec:ch3-conclusion}
+
+В данной главе описана реализация пяти компонентов
+системы авторизации.
+Сводка компонентов приведена в \taref{tab:components-summary}.
+
+\begin{table}[h]
+  \centering
+  \caption{Сводка реализованных компонентов}
+  \label{tab:components-summary}
+  \begin{tabularx}{\textwidth}{X l}
+    \hline
+    \textbf{Компонент} & \textbf{Язык} \\
+    \hline
+    auth-jwt              & C\# \\
+    auth-jwt-operator     & Go  \\
+    Terraform Provider    & Go  \\
+    Terraform-модуль      & HCL \\
+    Mindbox.Authentication & C\# \\
+    \hline
+  \end{tabularx}
+\end{table}
+
+Реализация подтверждает архитектурные решения, принятые в главе~\ref{ch:design}:
+pipeline ротации из семи идемпотентных шагов
+обеспечивает устойчивость к инфраструктурным сбоям;
+двухфазная синхронизация оператора реализует принцип максимальной защиты;
+механизм enforced claims устраняет угрозу повышения привилегий;
+валидация в Terraform-модуле предотвращает ошибки конфигурации
+до их попадания в систему.
+
+Разработана процедура инкрементальной миграции из семи шагов,
+позволяющая переводить каждый из 160~микросервисов независимо
+без координации между командами.
+
+Следующая глава посвящена тестированию компонентов
+и апробации системы на боевых контурах платформы.
+
+\FloatBarrier
