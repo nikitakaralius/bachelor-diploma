@@ -24,6 +24,8 @@ pdf:
 	- pdflatex -output-directory=./build -interaction=nonstopmode thesis.tex
 	# Third LaTeX run to resolve all references
 	- pdflatex -output-directory=./build -interaction=nonstopmode thesis.tex
+	# Copy resulting PDF to project root
+	cp build/thesis.pdf thesis.pdf
 
 application:
 	- pdflatex -output-directory=./build -interaction=nonstopmode application.tex
