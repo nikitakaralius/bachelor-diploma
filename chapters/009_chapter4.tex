@@ -545,6 +545,13 @@ spec:
 
 \subsection{Плановый эксперимент: отказ зоны доступности}\label{subsec:ch4-chaos-az}
 
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{diagrams/img/zone-chaos-test.png}
+  \caption{Логи auth-jwt в окне планового хаос-эксперимента: с момента начала до окончания инъекции сетевого сбоя в зоне доступности}
+  \label{fig:zone-chaos}
+\end{figure}
+
 Чтобы устойчивость системы проверялась не только в момент релиза,
 а на всём горизонте её жизни в эксплуатации,
 Chaos~Mesh используется и в режиме запусков по расписанию.
@@ -586,13 +593,6 @@ auth-jwt в одной из зон доступности
 отказоустойчивости.
 Пример логов сервиса в окне планового эксперимента,
 взятый из системы наблюдаемости, приведён на \firef{fig:zone-chaos}.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{diagrams/img/zone-chaos-test.png}
-  \caption{Логи auth-jwt в окне планового хаос-эксперимента: с момента начала до окончания инъекции сетевого сбоя в зоне доступности}
-  \label{fig:zone-chaos}
-\end{figure}
 
 \section{Апробация}\label{sec:ch4-rollout}
 
