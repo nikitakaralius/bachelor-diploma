@@ -427,3 +427,939 @@ static file class DictionaryUtils
     }
 }
 \end{lstlisting}
+
+\begin{lstlisting}[language={[Sharp]C},
+  label={lst:app-cached-client-tests},
+  caption={Класс CachedAuthJwtClientTests: набор юнит-тестов для кеширующего клиента}]
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Mindbox.Authentication.Abstractions;
+using Mindbox.Authentication.AspNetCore;
+using Moq;
+using Shouldly;
+
+namespace Mindbox.Authentication.Tests.AspNetCore;
+
+[TestClass]
+[SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance")]
+public sealed class CachedAuthJwtClientTests : IDisposable
+{
+    private Mock<IAuthJwtClient> _innerClient = null!;
+    private Mock<ISigningCredentialStore> _jwksStore = null!;
+    private IMemoryCache _cache = null!;
+    private Mock<IAuthJwtCacheMetrics> _metrics = null!;
+    private Mock<ILogger<CachedAuthJwtClient>> _logger = null!;
+    private CachedAuthJwtClient _cachedClient = null!;
+
+    [TestInitialize]
+    public void TestInitialize()
+    {
+        _innerClient = new Mock<IAuthJwtClient>();
+        _jwksStore = new Mock<ISigningCredentialStore>();
+        _metrics = new Mock<IAuthJwtCacheMetrics>();
+        _logger = new Mock<ILogger<CachedAuthJwtClient>>();
+        _cache = new AuthJwtTokenCache(new MemoryCacheOptions
+        {
+            SizeLimit = 3
+        });
+
+        _cachedClient = new CachedAuthJwtClient(
+            _innerClient.Object,
+            _jwksStore.Object,
+            _cache,
+            _metrics.Object,
+            _logger.Object
+        );
+    }
+
+    public void Dispose()
+    {
+        _cache.Dispose();
+    }
+
+    [TestMethod]
+    [DataRow(null, "default")]
+    [DataRow("tsum", "default")]
+    public async Task GetTokenAsync_CacheMiss_CallsInnerClientAndCachesToken(string? tenant, string policy)
+    {
+        // Arrange
+        var request = new GetTokenRequest
+        {
+            Tenant = tenant,
+            Policy = policy
+        };
+
+        var response = new GetTokenResponse
+        {
+            Token = "jwt_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        var result = await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        result.Token.ShouldBe(response.Token);
+        result.ExpiresAt.ShouldBe(response.ExpiresAt);
+        result.IssuedAt.ShouldBe(response.IssuedAt);
+        result.Kid.ShouldBe(response.Kid);
+
+        _innerClient.Verify(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()), Times.Once);
+
+        _metrics.Verify(x => x.RecordCacheMiss("get_token"), Times.Once);
+        _metrics.Verify(x => x.RecordTokenLifetime("get_token", It.IsAny<TimeSpan>()), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow(null, "default")]
+    [DataRow("tsum", "default")]
+    public async Task GetTokenAsync_CacheHit_ReturnsFromCacheWithoutCallingInner(string? tenant, string policy)
+    {
+        // Arrange
+        var request = new GetTokenRequest
+        {
+            Tenant = tenant,
+            Policy = policy
+        };
+
+        var response = new GetTokenResponse
+        {
+            Token = "jwt_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        _jwksStore.Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "key-123" } });
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+        var cachedResult = await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        cachedResult.Token.ShouldBe(response.Token);
+
+        _innerClient.Verify(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()), Times.Once);
+
+        _metrics.Verify(x => x.RecordCacheHit("get_token"), Times.Once);
+        _metrics.Verify(x => x.RecordCacheMiss("get_token"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetTokenAsync_KeyRotation_InvalidatesCacheAndFetchesNew()
+    {
+        // Arrange
+        var request = new GetTokenRequest
+        {
+            Tenant = "tsum",
+            Policy = "default"
+        };
+
+        var firstResponse = new GetTokenResponse
+        {
+            Token = "old_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "old-key"
+        };
+
+        var secondResponse = new GetTokenResponse
+        {
+            Token = "new_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "new-key"
+        };
+
+        _innerClient
+            .SetupSequence(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(firstResponse)
+            .ReturnsAsync(secondResponse);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "new-key" } });
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+        var result = await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        result.Token.ShouldBe("new_token");
+        result.Kid.ShouldBe("new-key");
+
+        _innerClient.Verify(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()), Times.Exactly(2));
+
+        _metrics.Verify(x => x.RecordInvalidation("get_token", "key_rotated"), Times.Once);
+    }
+
+    [TestMethod, Description("This is almost impossible, but just in case")]
+    public async Task GetTokenAsync_NoPublicKeys_InvalidatesCacheAndFetchesNew()
+    {
+        // Arrange
+        var request = new GetTokenRequest
+        {
+            Policy = "default"
+        };
+
+        var response = new GetTokenResponse
+        {
+            Token = "jwt_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(Array.Empty<JsonWebKey>());
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+        _ = await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        _innerClient.Verify(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _metrics.Verify(x => x.RecordInvalidation("get_token", "key_rotated"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetTokenAsync_DifferentTenants_StoresSeparately()
+    {
+        // Arrange
+        var request1 = new GetTokenRequest
+        {
+            Tenant = "tsum",
+            Policy = "default"
+        };
+
+        var request2 = new GetTokenRequest
+        {
+            Tenant = "decathlon",
+            Policy = "default"
+        };
+
+        var response1 = new GetTokenResponse
+        {
+            Token = "token1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        var response2 = new GetTokenResponse
+        {
+            Token = "token2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response1);
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response2);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "key-123" } });
+
+        // Act
+        var result1 = await _cachedClient.GetTokenAsync(request1);
+        var result2 = await _cachedClient.GetTokenAsync(request2);
+
+        // Assert
+        result1.Token.ShouldBe("token1");
+        result2.Token.ShouldBe("token2");
+
+        _innerClient.Verify(x => x.GetTokenAsync(It.IsAny<GetTokenRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [TestMethod]
+    public async Task GetTokenAsync_WithExchange_IncludesInCacheKey()
+    {
+        // Arrange
+        var request1 = new GetTokenRequest
+        {
+            Tenant = "tsum",
+            Policy = "default",
+            Exchange = new ExchangeDetails
+            {
+                AuthJwtUrl = "https://auth-jwt.mindbox.ru",
+                ClientId = "test-client"
+            }
+        };
+
+        var request2 = new GetTokenRequest
+        {
+            Tenant = "tsum",
+            Policy = "default"
+        };
+
+        var response1 = new GetTokenResponse
+        {
+            Token = "token1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        var response2 = new GetTokenResponse
+        {
+            Token = "token2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response1);
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response2);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "key-123" } });
+
+        // Act
+        var result1 = await _cachedClient.GetTokenAsync(request1);
+        var result2 = await _cachedClient.GetTokenAsync(request2);
+
+        // Assert
+        result1.Token.ShouldBe("token1");
+        result2.Token.ShouldBe("token2");
+
+        _innerClient.Verify(x => x.GetTokenAsync(It.IsAny<GetTokenRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [TestMethod, Description("This is not likely to happen with policy tokens, but to ensure safety why not")]
+    public async Task GetTokenAsync_VeryShortLifetime_DoesNotCache()
+    {
+        // Arrange
+        var request = new GetTokenRequest
+        {
+            Tenant = "tsum",
+            Policy = "default"
+        };
+
+        var issuedAt = DateTimeOffset.UtcNow;
+        var response = new GetTokenResponse
+        {
+            Token = "short_token",
+            ExpiresAt = issuedAt.AddSeconds(30),
+            IssuedAt = issuedAt,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+        await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        _innerClient.Verify(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _metrics.Verify(x => x.RecordUncacheableToken("get_token", "expired_or_too_short"), Times.Exactly(2));
+    }
+
+    [TestMethod]
+    [DataRow("tsum"), DataRow(null)]
+    public async Task GetCustomTokenAsync_CacheMiss_CallsInnerClientAndCachesToken(string? tenant)
+    {
+        // Arrange
+        var request = new GetCustomTokenRequest
+        {
+            Tenant = tenant,
+            Claims = new Dictionary<string, object>
+            {
+                ["userId"] = 123,
+                ["login"] = "someone",
+                ["email"] = "someome@mindbox.cloud",
+                ["permissions"] = new[] {"CanEditUsers", "CanReadUsers"}
+            },
+            TimeToLiveInSeconds = 3600
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "custom_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        var result = await _cachedClient.GetCustomTokenAsync(request);
+
+        // Assert
+        result.Token.ShouldBe(response.Token);
+        result.ExpiresAt.ShouldBe(response.ExpiresAt);
+        result.IssuedAt.ShouldBe(response.IssuedAt);
+        result.Kid.ShouldBe(response.Kid);
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+
+        _metrics.Verify(x => x.RecordCacheMiss("get_custom_token"), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow("tsum"), DataRow(null)]
+    public async Task GetCustomTokenAsync_CacheHit_ReturnsFromCache(string? tenant)
+    {
+        // Arrange
+        var request = new GetCustomTokenRequest
+        {
+            Tenant = tenant,
+            Claims = new Dictionary<string, object>
+            {
+                ["userId"] = 123,
+                ["login"] = "someone",
+                ["email"] = "someome@mindbox.cloud",
+                ["permissions"] = new[] {"CanEditUsers", "CanReadUsers"}
+            },
+            TimeToLiveInSeconds = 3600
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "custom_token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "key-456" } });
+
+        // Act
+        await _cachedClient.GetCustomTokenAsync(request);
+        var cachedResult = await _cachedClient.GetCustomTokenAsync(request);
+
+        // Assert
+        cachedResult.Token.ShouldBe(response.Token);
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+
+        _metrics.Verify(x => x.RecordCacheHit("get_custom_token"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_DifferentClaims_StoresSeparately()
+    {
+        // Arrange
+        var request1 = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object>
+            {
+                ["userId"] = 123
+            },
+            TimeToLiveInSeconds = 3600
+        };
+
+        var request2 = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object>
+            {
+                ["userId"] = 456
+            },
+            TimeToLiveInSeconds = 3600
+        };
+
+        var response1 = new GetCustomTokenResponse
+        {
+            Token = "token1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        var response2 = new GetCustomTokenResponse
+        {
+            Token = "token2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.Claims.Values.Contains(123)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response1);
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.Claims.Values.Contains(456)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response2);
+
+        // Act
+        var result1 = await _cachedClient.GetCustomTokenAsync(request1);
+        var result2 = await _cachedClient.GetCustomTokenAsync(request2);
+
+        // Assert
+        result1.Token.ShouldBe("token1");
+        result2.Token.ShouldBe("token2");
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_SameClaimsDifferentOrder_ReturnsSameCache()
+    {
+        // Arrange
+        var request1 = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object>
+            {
+                ["userId"] = 123,
+                ["email"] = "auth@mindbox.cloud"
+            },
+            TimeToLiveInSeconds = 3600
+        };
+
+        var request2 = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object>
+            {
+                ["email"] = "auth@mindbox.cloud",
+                ["userId"] = 123
+            },
+            TimeToLiveInSeconds = 3600
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "key-456" } });
+
+        // Act
+        await _cachedClient.GetCustomTokenAsync(request1);
+        var cachedResult = await _cachedClient.GetCustomTokenAsync(request2);
+
+        // Assert
+        cachedResult.Token.ShouldBe("token");
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+
+        _metrics.Verify(x => x.RecordCacheHit("get_custom_token"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_EmptyClaims_CachesCorrectly()
+    {
+        // Arrange
+        var request = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object>(),
+            TimeToLiveInSeconds = 3600
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "token_no_claims",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        _jwksStore
+            .Setup(x => x.GetPublicKeys())
+            .Returns(new[] { new JsonWebKey { Kid = "key-456" } });
+
+        // Act
+        await _cachedClient.GetCustomTokenAsync(request);
+        var cachedResult = await _cachedClient.GetCustomTokenAsync(request);
+
+        // Assert
+        cachedResult.Token.ShouldBe("token_no_claims");
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        _metrics.Verify(x => x.RecordCacheHit("get_custom_token"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_DifferentKind_CachesSeparately()
+    {
+        var baseRequest = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object> { ["userId"] = 123 },
+            TimeToLiveInSeconds = 3600,
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.Kind == TokenKind.Service),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateCustomTokenResponse("service_token"));
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.Kind == TokenKind.User),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateCustomTokenResponse("user_token"));
+
+        var result1 = await _cachedClient.GetCustomTokenAsync(baseRequest with { Kind = TokenKind.Service });
+        var result2 = await _cachedClient.GetCustomTokenAsync(baseRequest with { Kind = TokenKind.User });
+
+        result1.Token.ShouldBe("service_token");
+        result2.Token.ShouldBe("user_token");
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_DifferentTtl_StoresSeparately()
+    {
+        // Arrange
+        var claims = new Dictionary<string, object>
+        {
+            ["userId"] = 123
+        };
+
+        var request1 = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = claims,
+            TimeToLiveInSeconds = 3600
+        };
+
+        var request2 = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = claims,
+            TimeToLiveInSeconds = 7200
+        };
+
+        var response1 = new GetCustomTokenResponse
+        {
+            Token = "token_1h",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        var response2 = new GetCustomTokenResponse
+        {
+            Token = "token_2h",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(2),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.TimeToLiveInSeconds == 3600),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response1);
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.TimeToLiveInSeconds == 7200),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response2);
+
+        // Act
+        var result1 = await _cachedClient.GetCustomTokenAsync(request1);
+        var result2 = await _cachedClient.GetCustomTokenAsync(request2);
+
+        // Assert
+        result1.Token.ShouldBe("token_1h");
+        result2.Token.ShouldBe("token_2h");
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_TtlTooLow_ClampedToMinimum()
+    {
+        // Arrange
+        const int minTtl = CustomTokenConstraints.MinTokenTtl;
+
+        var request = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object> { ["userId"] = 123 },
+            TimeToLiveInSeconds = 60
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(minTtl),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient.Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.TimeToLiveInSeconds == minTtl),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        await _cachedClient.GetCustomTokenAsync(request);
+
+        // Assert
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.Is<GetCustomTokenRequest>(r => r.TimeToLiveInSeconds == minTtl),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_TtlTooHigh_ClampedToMaximum()
+    {
+        // Arrange
+        var maxTokenTtl = CustomTokenConstraints.MaxTokenTtl;
+
+        var request = new GetCustomTokenRequest
+        {
+            Tenant = "tsum",
+            Claims = new Dictionary<string, object> { ["userId"] = 123 },
+            TimeToLiveInSeconds = 100000
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "token",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(maxTokenTtl),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(
+                It.Is<GetCustomTokenRequest>(r => r.TimeToLiveInSeconds == maxTokenTtl),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        await _cachedClient.GetCustomTokenAsync(request);
+
+        // Assert
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.Is<GetCustomTokenRequest>(r => r.TimeToLiveInSeconds == maxTokenTtl),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetCustomTokenAsync_ComplexClaimTypes_HashesCorrectly()
+    {
+        // Arrange
+        var claims = new Dictionary<string, object?>
+        {
+            ["string"] = "string",
+            ["int"] = 123,
+            ["double"] = 123.456,
+            ["bool"] = true,
+            ["datetime"] = DateTimeOffset.UtcNow,
+            ["array"] = new[] { 1, 2, 3 },
+            ["object"] = new Dictionary<string, object> { ["key"] = "value" },
+            ["null"] = null
+        };
+
+        var request = new GetCustomTokenRequest
+        {
+            Tenant = "tenant1",
+            Claims = claims!,
+            TimeToLiveInSeconds = 3600
+        };
+
+        var response = new GetCustomTokenResponse
+        {
+            Token = "token1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            IssuedAt = DateTimeOffset.UtcNow,
+            Kid = "key-456"
+        };
+
+        _innerClient
+            .Setup(x => x.GetCustomTokenAsync(It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        var customToken = await _cachedClient.GetCustomTokenAsync(request);
+
+        // Assert
+        customToken.Token.ShouldBe("token1");
+
+        _innerClient.Verify(x => x.GetCustomTokenAsync(
+            It.IsAny<GetCustomTokenRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetJwksAsync_AlwaysDelegatesToInnerClient()
+    {
+        // Arrange
+        var expectedResponse = new GetJwksResponse
+        {
+            Primary = new AuthJwtJsonWebKeyModel { Kid = "key1", Kty = "RSA", Use = "sig", N = "n", E = "e" }
+        };
+
+        _innerClient.Setup(x => x.GetJwksAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedResponse);
+
+        // Act
+        var result = await _cachedClient.GetJwksAsync();
+
+        // Assert
+        result.ShouldBe(expectedResponse);
+        _innerClient.Verify(x => x.GetJwksAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CacheToken_ShortLifetimeToken_Uses50PercentBufferClampedToMaxBuffer()
+    {
+        // Arrange
+        var request = new GetTokenRequest { Tenant = "tsum", Policy = "default" };
+        var issuedAt = DateTimeOffset.UtcNow;
+        var response = new GetTokenResponse
+        {
+            Token = "token",
+            ExpiresAt = issuedAt.AddMinutes(5),
+            IssuedAt = issuedAt,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        // 5 minutes lifetime: 50% = 2.5 min, clamped to max 2 min for <10min range
+        // Cache duration = 5 min - 2 min = 3 min
+        _metrics.Verify(x => x.RecordCacheDuration("get_token",
+            It.Is<TimeSpan>(ts => ts >= TimeSpan.FromMinutes(2.9) && ts <= TimeSpan.FromMinutes(3.1))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CacheToken_MediumLifetimeToken_Uses50PercentBufferClampedToMaxBuffer()
+    {
+        // Arrange
+        var request = new GetTokenRequest { Tenant = "tsum", Policy = "default" };
+        var issuedAt = DateTimeOffset.UtcNow;
+        var response = new GetTokenResponse
+        {
+            Token = "token",
+            ExpiresAt = issuedAt.AddMinutes(30),
+            IssuedAt = issuedAt,
+            Kid = "key-123"
+        };
+
+        _innerClient
+            .Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        // 30-minute lifetime: 50% = 15 min, clamped to max 10 min for 10min-1h range
+        // Cache duration = 30 min - 10 min = 20 min
+        _metrics.Verify(x => x.RecordCacheDuration("get_token",
+            It.Is<TimeSpan>(ts => ts >= TimeSpan.FromMinutes(19.9) && ts <= TimeSpan.FromMinutes(20.1))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CacheToken_LongLifetimeToken_Uses50PercentBufferClampedToMaxBuffer()
+    {
+        // Arrange
+        var request = new GetTokenRequest { Tenant = "tsum", Policy = "default" };
+        var issuedAt = DateTimeOffset.UtcNow;
+        var response = new GetTokenResponse
+        {
+            Token = "token",
+            ExpiresAt = issuedAt.AddHours(10),
+            IssuedAt = issuedAt,
+            Kid = "key-123"
+        };
+
+        _innerClient.Setup(x => x.GetTokenAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+
+        // Act
+        await _cachedClient.GetTokenAsync(request);
+
+        // Assert
+        // 10-hour lifetime: 50% = 5 hours, clamped to max 30 min for >1h range
+        // Cache duration = 10 hours - 30 min = 9.5 hours
+        _metrics.Verify(x => x.RecordCacheDuration("get_token",
+            It.Is<TimeSpan>(ts => ts >= TimeSpan.FromHours(9.49) && ts <= TimeSpan.FromHours(9.51))),
+            Times.Once);
+    }
+
+    private static GetCustomTokenResponse CreateCustomTokenResponse(string token) => new()
+    {
+        Token = token,
+        ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+        IssuedAt = DateTimeOffset.UtcNow,
+        Kid = "key-456"
+    };
+}
+\end{lstlisting}
