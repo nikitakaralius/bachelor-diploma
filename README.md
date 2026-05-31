@@ -1,4 +1,4 @@
-# bachelor-diploma
+# bachelor-thesis
 
 [Оригинальный репозиторий шаблона](https://github.com/ParkhomenkoV/SPbPU-student-thesis-template)
 
