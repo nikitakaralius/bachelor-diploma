@@ -6,8 +6,7 @@
   \input{template_settings/common/renames}
 
   % Титульник
-  \input{chapters/000_nrw_title} % временно: НИР-титульник
-  %\input{chapters/001_title} % основной титульник ВКР
+  \input{chapters/001_title} % основной титульник ВКР
 
   % Для сдачи в высшую школу компилируем двухсторонний My_task.tex
   % После подписания задания изменение его содержания и оформления запрещено
@@ -25,13 +24,13 @@
 
   %% Начало основной части
   \input{chapters/006_chapter1}	               % Глава 1
-  % \ContinueChapterBegin
+  \ContinueChapterBegin
   \input{chapters/007_chapter2}	               % Глава 2
   \input{chapters/008_chapter3}                % Глава 3
   \input{chapters/009_chapter4}                % Глава 4
-  % \ContinueChapterEnd
+  \ContinueChapterEnd
 
-  % \input{chapters/010_conclusion}        	 % Заключение
+  \input{chapters/010_conclusion}        	 % Заключение
 
   %% Наличие следующих перечней не исключает расшифровку сокращения и условного обозначения при первом упоминании в тексте!
   % \input{chapters/011_acronyms}		         % Необязательная рубрика! Список сокращений и условных обозначений
@@ -46,7 +45,7 @@
   \appendix % не редактировать / keep unmodified
 
 
-  \input{chapters/014_appendix1}           % Приложение: CachedAuthJwtClient
+  \input{chapters/014_appendix1}           % Приложение 1
 
   % \input{chapters/015_appendix2}         % Приложение 2
 
