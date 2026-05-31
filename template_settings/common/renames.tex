@@ -76,10 +76,10 @@
 %% Ключевых слов от 3 до 5 слов или словосочетаний в именительном падеже именительном падеже множественного числа (или в единственном числе, если нет другой формы) по правилам русского языка!!!
 %%
 %%
-\newcommand{\keywordsRu}{стилевое оформление сайта, управление контентом, php, MySQL, архитектура системы} % ВВЕДИТЕ ключевые слова по-русски
+\newcommand{\keywordsRu}{безопасность, JWT, межсервисная авторизация, ротация ключей, микросервисы} % ВВЕДИТЕ ключевые слова по-русски
 %%
 %%
-\newcommand{\keywordsEn}{style registration, content management, php, MySQL, system architecture} % ВВЕДИТЕ ключевые слова по-английски
+\newcommand{\keywordsEn}{security, JWT, service-to-service authorization, key rotation, microservices} % ВВЕДИТЕ ключевые слова по-английски
 %%
 %%
 %% Реферат ОТ 1000 ДО 1500 знаков на русский или английский текст
@@ -91,10 +91,10 @@
 %- область применения результатов ВКР;
 %- выводы.
 
-\newcommand{\abstractRu}{В данной работе изложена сущность подхода к созданию динамического информационного портала на основе использования открытых технологий Apache, MySQL и PHP. Даны общие понятия и классификация IT-систем такого класса. Проведен анализ систем-прототипов. Изучена технология создания указанного класса информационных систем. Разработана конкретная программная реализация динамического информационного портала на примере портала выбранной тематики...} % ВВЕДИТЕ текст аннотации по-русски
+\newcommand{\abstractRu}{Объект исследования~--- система межсервисной авторизации высоконагруженной микросервисной платформы Mindbox (около 160~микросервисов, свыше 2~млн запросов в минуту). Цель работы~--- спроектировать, реализовать и внедрить систему автоматической бесшовной ротации криптографических ключей подписи JWT. Методология включает моделирование угроз по STRIDE с количественной оценкой DREAD, анализ открытых стандартов (JWT, JWK, OAuth 2.0 Token Exchange, OpenID Connect) и нагрузочное тестирование. Разработана система из пяти компонентов. Бесшовность обеспечивает трёхшаговый алгоритм ротации с grace-периодами и проверкой доступности ключей; межконтурное взаимодействие построено на Token Exchange. Использованы C\#, Go, Docker, Kubernetes, PostgreSQL и Yandex Cloud. Система внедрена в промышленную эксплуатацию: ключи ротируются автоматически по расписанию, время ответа по 95-му процентилю~--- 8~мс при SLO 30~мс, подтверждённая пропускная способность~--- 15~000 запросов в секунду, за два месяца эксплуатации инцидентов авторизации не зафиксировано. Результаты применимы в высоконагруженных микросервисных платформах, требующих плановой смены ключей без простоя. Подтверждена гипотеза: бесшовная автоматическая ротация достижима собственным решением на основе открытых стандартов с учётом особенностей существующей архитектуры.} % ВВЕДИТЕ текст аннотации по-русски
 %%
 %%
-\newcommand{\abstractEn}{In the given work the essence of the approach to creation of a dynamic information portal on the basis of use of open technologies Apache, MySQL and PHP is stated. The general concepts and classification of IT-systems of such class are given. The analysis of systems-prototypes is lead. The technology of creation of the specified class of information systems is investigated. Concrete program realization of a dynamic information portal on an example of a portal of the chosen subjects is developed...} % ВВЕДИТЕ текст аннотации по-английски
+\newcommand{\abstractEn}{This work addresses service-to-service authorization in Mindbox, a large-scale microservice platform that runs roughly 160~services and handles over 2~million requests per minute. The goal is to design, implement, and deploy a system that automatically rotates cryptographic JWT signing keys with zero downtime. The approach combines STRIDE threat modeling with quantitative DREAD scoring, a review of open standards (JWT, JWK, OAuth 2.0 Token Exchange, and OpenID Connect), and load testing. The resulting system comprises five components. Zero downtime is achieved by a three-step rotation algorithm with grace periods and key-availability checks; requests across deployment environments use Token Exchange. The system is built with C\#, Go, Docker, Kubernetes, PostgreSQL, and Yandex Cloud. It now runs in production: keys rotate automatically on a schedule, the 95th-percentile response time is 8~ms against a 30~ms SLO, measured throughput reaches 15,000~requests per second, and no authorization incidents have occurred in two months of operation. The results apply to any large-scale microservice platform that needs scheduled, downtime-free key rotation. They confirm the hypothesis: automated, zero-downtime key rotation is achievable with an in-house solution built on open standards and tailored to the existing architecture.} % ВВЕДИТЕ текст аннотации по-английски
 
 
 %%% РАЗДЕЛ ДЛЯ ОФОРМЛЕНИЯ ПРАКТИКИ
