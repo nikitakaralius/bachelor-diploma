@@ -9,9 +9,9 @@
 \newcommand{\Supervisor}{А.В.\,Сергеев} % И. О. Фамилия научного руководителя
 \newcommand{\SupervisorFull}{Сергеев Анатолий Васильевич} % Фамилия Имя Отчество научного руководителя
 \newcommand{\SupervisorVin}{А.В.\,Сергеева} % И. О. Фамилия научного руководителя  в винительном падеже (Кого? что? Руководителя ...)
-\newcommand{\SupervisorJob}{доцент ВШ ПИ} %
-\newcommand{\SupervisorJobVin}{доцента ВШ ПИ} % в винительном падеже (Кого? что?  Програмиста ...)
-\newcommand{\SupervisorDegree}{к.т.н} %
+\newcommand{\SupervisorJob}{доцент ВШПИ} %
+\newcommand{\SupervisorJobVin}{доцента ВШПИ} % в винительном падеже (Кого? что?  Програмиста ...)
+\newcommand{\SupervisorDegree}{к.т.н.} %
 \newcommand{\SupervisorTitle}{} %
 %%
 %%
@@ -33,7 +33,7 @@
 \newcommand{\HeadApDep}{} % заменить на краткую аббревиатуру подразделения или оставить пустым, если утверждает руководитель ОП
 %%% Консультант по нормоконтролю
 \newcommand{\ConsultantNorm}{Е.Е.\,Андрианова} % И. О. Фамилия консультанта по нормоконтролю. ТОЛЬКО из числа ППС!
-\newcommand{\ConsultantNormDegree}{ст.преподаватель ВШ ПИ} %
+\newcommand{\ConsultantNormDegree}{старший преподаватель ВШПИ} %
 %%% Первый консультант
 \newcommand{\ConsultantExtraFull}{Маркелов Максим Александрович} % Фамилия Имя Отчетство дополнительного консультанта
 \newcommand{\ConsultantExtra}{М.А.\,Маркелов} % И. О. Фамилия дополнительного консультанта
@@ -56,7 +56,7 @@
 \newcommand{\thesisDeadline}{18.05.2026} %Последний день преддипломной практики согласно учебному плану.
 \newcommand{\thesisStartDate}{16.02.2026}
 \newcommand{\thesisYear}{2026} % заменить на год защиты
-\newcommand{\approveYear}{202\underline{\hspace*{0.01\textheight}}} % <- НЕ МЕНЯТЬ, ТОЛЬКО С 2030го :)
+\newcommand{\approveYear}{2026} % год допуска/утверждения (нормоконтроль: год должен быть указан)
 %%
 %%
 \newcommand{\group}{5130903/20302} % заменить вместо N номер группы
@@ -91,10 +91,16 @@
 %- область применения результатов ВКР;
 %- выводы.
 
-\newcommand{\abstractRu}{Объект исследования~--- система межсервисной авторизации высоконагруженной микросервисной платформы Mindbox (около 160~микросервисов, свыше 2~млн запросов в минуту). Цель работы~--- спроектировать, реализовать и внедрить систему автоматической бесшовной ротации криптографических ключей подписи JWT. Методология включает моделирование угроз по STRIDE с количественной оценкой DREAD, анализ открытых стандартов (JWT, JWK, OAuth 2.0 Token Exchange, OpenID Connect) и нагрузочное тестирование. Разработана система из пяти компонентов. Бесшовность обеспечивает трёхшаговый алгоритм ротации с grace-периодами и проверкой доступности ключей; межконтурное взаимодействие построено на Token Exchange. Использованы C\#, Go, Docker, Kubernetes, PostgreSQL и Yandex Cloud. Система внедрена в промышленную эксплуатацию: ключи ротируются автоматически по расписанию, время ответа по 95-му процентилю~--- 8~мс при SLO 30~мс, подтверждённая пропускная способность~--- 15~000 запросов в секунду, за два месяца эксплуатации инцидентов авторизации не зафиксировано. Результаты применимы в высоконагруженных микросервисных платформах, требующих плановой смены ключей без простоя. Подтверждена гипотеза: бесшовная автоматическая ротация достижима собственным решением на основе открытых стандартов с учётом особенностей существующей архитектуры.} % ВВЕДИТЕ текст аннотации по-русски
+\newcommand{\abstractRu}{Объект исследования~--- система межсервисной авторизации высоконагруженной микросервисной платформы Mindbox (около 160~микросервисов, свыше 2~млн запросов в минуту). Тема работы~--- автоматическая бесшовная ротация криптографических ключей подписи JWT. Цель работы~--- спроектировать, реализовать и внедрить систему такой ротации.\par
+Методологической основой работы выступает системный анализ: декомпозиция системы межсервисной авторизации на взаимосвязанные элементы, анализ их связей и ограничений, синтез целевой архитектуры и её экспериментальная апробация.\par
+Разработана система из пяти компонентов. Бесшовность обеспечивает трёхшаговый алгоритм ротации с grace-периодами и проверкой доступности ключей; межконтурное взаимодействие построено на Token Exchange. Использованы C\#, Go, Docker, Kubernetes, PostgreSQL и Yandex Cloud. Система внедрена в промышленную эксплуатацию: ключи ротируются автоматически по расписанию, время ответа по 95-му процентилю~--- 8~мс при SLO 30~мс, подтверждённая пропускная способность~--- 15~000 запросов в секунду, за два месяца эксплуатации инцидентов авторизации не зафиксировано.\par
+Результаты применимы в высоконагруженных микросервисных платформах, требующих плановой смены ключей без простоя. Подтверждена гипотеза: бесшовная автоматическая ротация достижима собственным решением на основе открытых стандартов с учётом особенностей существующей архитектуры.} % ВВЕДИТЕ текст аннотации по-русски
 %%
 %%
-\newcommand{\abstractEn}{This work addresses service-to-service authorization in Mindbox, a large-scale microservice platform that runs roughly 160~services and handles over 2~million requests per minute. The goal is to design, implement, and deploy a system that automatically rotates cryptographic JWT signing keys with zero downtime. The approach combines STRIDE threat modeling with quantitative DREAD scoring, a review of open standards (JWT, JWK, OAuth 2.0 Token Exchange, and OpenID Connect), and load testing. The resulting system comprises five components. Zero downtime is achieved by a three-step rotation algorithm with grace periods and key-availability checks; requests across deployment environments use Token Exchange. The system is built with C\#, Go, Docker, Kubernetes, PostgreSQL, and Yandex Cloud. It now runs in production: keys rotate automatically on a schedule, the 95th-percentile response time is 8~ms against a 30~ms SLO, measured throughput reaches 15,000~requests per second, and no authorization incidents have occurred in two months of operation. The results apply to any large-scale microservice platform that needs scheduled, downtime-free key rotation. They confirm the hypothesis: automated, zero-downtime key rotation is achievable with an in-house solution built on open standards and tailored to the existing architecture.} % ВВЕДИТЕ текст аннотации по-английски
+\newcommand{\abstractEn}{This work addresses service-to-service authorization in Mindbox, a large-scale microservice platform that runs roughly 160~services and handles over 2~million requests per minute. The subject of the work is automated zero-downtime rotation of cryptographic JWT signing keys. The aim is to design, implement, and deploy such a rotation system.\par
+Methodologically, the work rests on systems analysis: it decomposes the service-to-service authorization system into interrelated elements, analyzes their relationships and constraints, synthesizes a target architecture, and validates it experimentally.\par
+The resulting system comprises five components. A three-step rotation algorithm with grace periods and key-availability checks delivers zero downtime, while cross-environment requests rely on Token Exchange. The system is written in C\# and Go, packaged with Docker and Kubernetes, backed by PostgreSQL, and deployed on Yandex Cloud. It now runs in production: keys rotate automatically on a schedule, the 95th-percentile response time is 8~ms against a 30~ms SLO, measured throughput reaches 15,000~requests per second, and no authorization incidents have occurred in two months of operation.\par
+The results apply to any large-scale microservice platform that needs scheduled, zero-downtime key rotation, and they confirm the hypothesis: such rotation is achievable with an in-house solution built on open standards and tailored to the platform's existing architecture.} % ВВЕДИТЕ текст аннотации по-английски
 
 
 %%% РАЗДЕЛ ДЛЯ ОФОРМЛЕНИЯ ПРАКТИКИ
@@ -109,7 +115,7 @@
 \newcommand{\PracticeOrgSupervisor}{М.А.\,Маркелов}
 \newcommand{\PracticeOrgSupervisorDegree}{тех.руководитель команды разработки}
 
-\newcommand{\Workplace}{ФГАОУ ВО «СПбПУ», ИКНК, ВШ ПИ}
+\newcommand{\Workplace}{ФГАОУ ВО «СПбПУ», ИКНК, ВШПИ}
 
 % Даты начала/окончания
 \newcommand{\PracticeStartDate}{%
@@ -154,7 +160,7 @@
 \hypersetup{%часть болка hypesetup в style
 		pdftitle={\pdfTitle},    % Заголовок pdf-файла
 		pdfauthor={\AuthorFull},    % Автор
-		pdfsubject={\pdfDocType. Шифр и наименование направления подготовки: \thesisSpecialtyCodeAndTitle. \abstractRu},      % Тема
+		pdfsubject={\pdfDocType. Шифр и наименование направления подготовки: \thesisSpecialtyCodeAndTitle. \thesisTitle},      % Тема
 		pdfcreator={LaTeX, SPbPU-student-thesis-template},     % Приложение-создатель
 %		pdfproducer={},  % Производитель, Производитель PDF % будет выставлена автоматически
 		pdfkeywords={\keywordsRu}
