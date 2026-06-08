@@ -479,3 +479,11 @@ sorting=none,% настройка сортировки списка литера
 %modify PhD theis, for candidate one can use words CANDthesis
 \DefineBibliographyStrings{english}{phdthesis = {diss\adddot\space\ldots}}
 \renewcommand*{\gostmedialanguage}{}
+
+%%% Нормоконтроль: несколько источников в одной ссылке разделяются запятой, а не «;»
+%%% (например, [1, 2, 3] вместо [1; 2; 3]). Также сортировка номеров уже включена (sortcites).
+\AtBeginDocument{\renewcommand*{\multicitedelim}{\addcomma\space}}
+
+%%% Нормоконтроль: для иноязычных источников дату обращения печатаем по-русски
+%%% («дата обращения» вместо «visited on»).
+\DefineBibliographyStrings{english}{urlseen = {дата обращения}}
