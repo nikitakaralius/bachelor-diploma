@@ -119,7 +119,6 @@ auth-jwt тестируется с реальными PostgreSQL и Vault,
 На \firef{fig:integration-test} приведён
 пример теста генерации токена.
 
-\begin{codeblock}
 \begin{lstlisting}[language={[Sharp]C}]
 [TestMethod]
 public async Task GenerateToken_ValidParameters_TokenGenerated()
@@ -152,7 +151,6 @@ public async Task GenerateToken_ValidParameters_TokenGenerated()
 }
 \end{lstlisting}
 \codefig{Интеграционный тест генерации токена с использованием DSL}{fig:integration-test}
-\end{codeblock}
 
 Тест читается как спецификация:
 создать клиента с политикой,
@@ -198,7 +196,6 @@ BDD-ориентированном фреймворке для языка Go.
 такая отсрочка даёт время восстановить случайно удалённую
 конфигурацию без нарушения работы потребителей.
 
-\begin{codeblock}
 \begin{lstlisting}[language=Go]
 It("deleting tokens from CR does not remove from secret "+
     "until expiration", func() {
@@ -240,7 +237,6 @@ It("deleting tokens from CR does not remove from secret "+
 })
 \end{lstlisting}
 \codefig{Сквозной тест: токен остаётся в Secret после удаления из спецификации до истечения срока действия}{fig:e2e-test}
-\end{codeblock}
 
 Тест использует две ключевые конструкции Ginkgo:
 \texttt{Consistently}~--- утверждает, что условие выполняется
@@ -263,7 +259,6 @@ Terraform и форматом HTTP-запросов.
 Пример юнит-теста маппинга API-ответа в состояние ресурса
 приведён на \firef{fig:tf-map-test}.
 
-\begin{codeblock}
 \begin{lstlisting}[language=Go]
 state, diags := mapApiResponseToState(&AuthClientResponse{
     ClientID:          "client-a",
@@ -281,7 +276,6 @@ if state.TokenPolicies["default"].TTLSeconds.ValueInt32() != 3600 {
 }
 \end{lstlisting}
 \codefig{Юнит-тест маппинга API-ответа в состояние ресурса}{fig:tf-map-test}
-\end{codeblock}
 
 В приведённом тесте функция \texttt{mapApiResponseToState}
 принимает ответ от auth-jwt в виде структуры \texttt{AuthClientResponse}
@@ -318,7 +312,6 @@ HTTP-контракт, на котором держится взаимодейс
 к защищённому эндпоинту с валидным токеном возвращает успешный ответ,
 приведён на \firef{fig:lib-integration-test}.
 
-\begin{codeblock}
 \begin{lstlisting}[language={[Sharp]C}]
 [TestMethod]
 public async Task ProtectedEndpoint_WithValidToken_Returns200()
@@ -338,7 +331,6 @@ public async Task ProtectedEndpoint_WithValidToken_Returns200()
 }
 \end{lstlisting}
 \codefig{Интеграционный тест клиентской библиотеки: авторизация валидным токеном}{fig:lib-integration-test}
-\end{codeblock}
 
 Тест поднимает экземпляр приложения с подключённой библиотекой
 Mindbox.Authentication, выпускает тестовый токен через предусмотренный
@@ -503,7 +495,6 @@ auth-jwt продолжал отвечать без отказов.
 объявляет одновременный сбой всех экземпляров распределённого
 кеша на пять минут.
 
-\begin{codeblock}
 \begin{lstlisting}[]
 kind: PodChaos
 apiVersion: chaos-mesh.org/v1alpha1
@@ -521,7 +512,6 @@ spec:
   duration: 5m
 \end{lstlisting}
 \codefig{Манифест эксперимента в Chaos~Mesh: одновременный сбой всех экземпляров распределённого кеша на пять минут}{fig:chaos-mesh-config}
-\end{codeblock}
 
 Поведение auth-jwt во время эксперимента приведено
 на \firef{fig:cache-failure}.

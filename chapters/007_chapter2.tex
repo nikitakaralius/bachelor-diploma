@@ -887,7 +887,6 @@ Provider позволит описывать клиентов авторизац
 На \firef{fig:terraform-client} приведён пример описания клиента авторизации
 с политиками токенов и межконтурным взаимодействием.
 
-\begin{codeblock}
 \begin{lstlisting}[language=HCL]
 # Имя клиента = K8s неймспейс микросервиса
 "gift-cards-sync" : {
@@ -925,7 +924,6 @@ Provider позволит описывать клиентов авторизац
 }
 \end{lstlisting}
 \codefig{Описание клиента авторизации в Terraform-модуле}{fig:terraform-client}
-\end{codeblock}
 
 Каждый клиент описывает набор политик~--- шаблонов токенов
 с указанием времени жизни и разрешений.
@@ -935,7 +933,6 @@ Provider позволит описывать клиентов авторизац
 На \firef{fig:terraform-issuer} приведён пример описания
 доверенного эмитента с OIDC Discovery.
 
-\begin{codeblock}
 \begin{lstlisting}[language=HCL]
 resource "authjwt_trusted_issuer" "AuthJwtBeta" {
   issuer_name        = "AuthJwtBeta"
@@ -949,7 +946,6 @@ resource "authjwt_trusted_issuer" "AuthJwtBeta" {
 }
 \end{lstlisting}
 \codefig{Описание доверенного эмитента в Terraform}{fig:terraform-issuer}
-\end{codeblock}
 
 \emph{Terraform-модуль}~--- переиспользуемый пакет конфигурации,
 объединяющий несколько ресурсов в единое целое~\cite{TerraformModules}.
