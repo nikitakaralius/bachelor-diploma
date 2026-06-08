@@ -116,12 +116,10 @@ auth-jwt тестируется с реальными PostgreSQL и Vault,
 операции через HTTP API
 и операции с секретами в Vault.
 
-В листинге~\ref{lst:integration-test} приведён
+На \firef{fig:integration-test} приведён
 пример теста генерации токена.
 
-\begin{lstlisting}[language={[Sharp]C},
-  label={lst:integration-test},
-  caption={Интеграционный тест генерации токена с использованием DSL}]
+\begin{lstlisting}[language={[Sharp]C}]
 [TestMethod]
 public async Task GenerateToken_ValidParameters_TokenGenerated()
 {
@@ -152,6 +150,7 @@ public async Task GenerateToken_ValidParameters_TokenGenerated()
     Assert.AreEqual(1, metricValue);
 }
 \end{lstlisting}
+\codefig{Интеграционный тест генерации токена с использованием DSL}{fig:integration-test}
 
 Тест читается как спецификация:
 создать клиента с политикой,
@@ -188,7 +187,7 @@ BDD-ориентированном фреймворке для языка Go.
 что позволяет наблюдать реальное поведение реконсиляции
 без необходимости в работающем экземпляре микросервиса.
 
-В листинге~\ref{lst:e2e-test} приведён сокращённый сценарий,
+На \firef{fig:e2e-test} приведён сокращённый сценарий,
 проверяющий механизм надёжного удаления токенов.
 Если разработчик убирает определение токена
 из спецификации Custom Resource,
@@ -197,9 +196,7 @@ BDD-ориентированном фреймворке для языка Go.
 такая отсрочка даёт время восстановить случайно удалённую
 конфигурацию без нарушения работы потребителей.
 
-\begin{lstlisting}[language=Go,
-  label={lst:e2e-test},
-  caption={Сквозной тест: токен остаётся в Secret после удаления из спецификации до истечения срока действия}]
+\begin{lstlisting}[language=Go]
 It("deleting tokens from CR does not remove from secret "+
     "until expiration", func() {
 
@@ -239,6 +236,7 @@ It("deleting tokens from CR does not remove from secret "+
     }).Should(Succeed())
 })
 \end{lstlisting}
+\codefig{Сквозной тест: токен остаётся в Secret после удаления из спецификации до истечения срока действия}{fig:e2e-test}
 
 Тест использует две ключевые конструкции Ginkgo:
 \texttt{Consistently}~--- утверждает, что условие выполняется
@@ -259,11 +257,9 @@ Terraform и форматом HTTP-запросов.
 встроенного в стандартную библиотеку Go средства
 для запуска тестового HTTP-сервера в том же процессе, что и тест.
 Пример юнит-теста маппинга API-ответа в состояние ресурса
-приведён в листинге~\ref{lst:tf-map-test}.
+приведён на \firef{fig:tf-map-test}.
 
-\begin{lstlisting}[language=Go,
-  label={lst:tf-map-test},
-  caption={Юнит-тест маппинга API-ответа в состояние ресурса}]
+\begin{lstlisting}[language=Go]
 state, diags := mapApiResponseToState(&AuthClientResponse{
     ClientID:          "client-a",
     AllowCustomClaims: true,
@@ -279,6 +275,7 @@ if state.TokenPolicies["default"].TTLSeconds.ValueInt32() != 3600 {
     t.Fatal()
 }
 \end{lstlisting}
+\codefig{Юнит-тест маппинга API-ответа в состояние ресурса}{fig:tf-map-test}
 
 В приведённом тесте функция \texttt{mapApiResponseToState}
 принимает ответ от auth-jwt в виде структуры \texttt{AuthClientResponse}
@@ -313,11 +310,9 @@ HTTP-контракт, на котором держится взаимодейс
 
 Пример интеграционного теста, проверяющего, что запрос
 к защищённому эндпоинту с валидным токеном возвращает успешный ответ,
-приведён в листинге~\ref{lst:lib-integration-test}.
+приведён на \firef{fig:lib-integration-test}.
 
-\begin{lstlisting}[language={[Sharp]C},
-  label={lst:lib-integration-test},
-  caption={Интеграционный тест клиентской библиотеки: авторизация валидным токеном}]
+\begin{lstlisting}[language={[Sharp]C}]
 [TestMethod]
 public async Task ProtectedEndpoint_WithValidToken_Returns200()
 {
@@ -335,6 +330,7 @@ public async Task ProtectedEndpoint_WithValidToken_Returns200()
     Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 }
 \end{lstlisting}
+\codefig{Интеграционный тест клиентской библиотеки: авторизация валидным токеном}{fig:lib-integration-test}
 
 Тест поднимает экземпляр приложения с подключённой библиотекой
 Mindbox.Authentication, выпускает тестовый токен через предусмотренный
@@ -495,13 +491,11 @@ auth-jwt продолжал отвечать без отказов.
 настроенных таймаутов и не выйдет ли время ответа за SLO.
 
 Эксперимент проводится на промышленном контуре Sigma.
-Манифест эксперимента (листинг~\ref{lst:chaos-mesh-config})
+Манифест эксперимента (\firef{fig:chaos-mesh-config})
 объявляет одновременный сбой всех экземпляров распределённого
 кеша на пять минут.
 
-\begin{lstlisting}[
-  label={lst:chaos-mesh-config},
-  caption={Манифест эксперимента в Chaos~Mesh: одновременный сбой всех экземпляров распределённого кеша на пять минут}]
+\begin{lstlisting}[]
 kind: PodChaos
 apiVersion: chaos-mesh.org/v1alpha1
 metadata:
@@ -517,6 +511,7 @@ spec:
   action: pod-failure
   duration: 5m
 \end{lstlisting}
+\codefig{Манифест эксперимента в Chaos~Mesh: одновременный сбой всех экземпляров распределённого кеша на пять минут}{fig:chaos-mesh-config}
 
 Поведение auth-jwt во время эксперимента приведено
 на \firef{fig:cache-failure}.

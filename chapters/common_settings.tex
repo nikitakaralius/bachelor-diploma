@@ -39,10 +39,35 @@
   morestring=[b]`,
 }
 
+%%%% Нормоконтроль: текст внутри таблиц набирается 12 pt (основной текст — 14 pt)
+%% \AtBeginEnvironment из etoolbox (подключён в шаблоне). Подпись «Таблица N — …»
+%% у float-таблиц (\caption вне tabular) остаётся в основном кегле.
+\AtBeginEnvironment{tabular}{\fontsize{12pt}{14pt}\selectfont}
+\AtBeginEnvironment{tabularx}{\fontsize{12pt}{14pt}\selectfont}
+\AtBeginEnvironment{longtable}{\fontsize{12pt}{14pt}\selectfont}
+
+%%%% Подпись к листингу-рисунку (код оформлен как рисунок, см. главы 2–4).
+%% \captionof{figure} вне float применяет настройки [figure] (обнуление
+%% \parindent, labelformat=figwithoutspace и пр.) прямо в основном потоке, и
+%% они «утекают» в последующий текст: пропадает красная строка, а подписи
+%% таблиц теряют пробел («Таблица3.1»). Оборачиваем подпись в группу {…},
+%% чтобы все локальные настройки caption остались внутри неё.
+%% Счётчик figure и \label при этом работают штатно (refstepcounter глобален).
+\makeatletter
+\newcommand{\codefig}[2]{%
+  \par
+  \begingroup
+    \captionof{figure}{#1}\label{#2}%
+  \endgroup
+  \par
+}
+\makeatother
+
+
 %%%% Подключение библиографии / Upload bibliography
-%% 
-%% 
-\addbibresource{chapters/013_references.bib} % 
+%%
+%%
+\addbibresource{chapters/013_references.bib} %
 
 
 

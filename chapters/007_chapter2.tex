@@ -884,11 +884,10 @@ Provider позволит описывать клиентов авторизац
 доверенных эмитентов и exchange-правила
 как Terraform-ресурсы.
 
-В листинге~\ref{lst:terraform-client} приведён пример описания клиента авторизации
+На \firef{fig:terraform-client} приведён пример описания клиента авторизации
 с политиками токенов и межконтурным взаимодействием.
 
-\begin{lstlisting}[language=HCL,label={lst:terraform-client},
-  caption={Описание клиента авторизации в Terraform-модуле}]
+\begin{lstlisting}[language=HCL]
 # Имя клиента = K8s неймспейс микросервиса
 "gift-cards-sync" : {
   # Разрешить токены с произвольными клеймами
@@ -924,17 +923,17 @@ Provider позволит описывать клиентов авторизац
   }
 }
 \end{lstlisting}
+\codefig{Описание клиента авторизации в Terraform-модуле}{fig:terraform-client}
 
 Каждый клиент описывает набор политик~--- шаблонов токенов
 с указанием времени жизни и разрешений.
 Секция \texttt{exchange\_clients} определяет межконтурное взаимодействие:
 в каком контуре создать exchange-клиента и какие политики ему назначить.
 
-В листинге~\ref{lst:terraform-issuer} приведён пример описания
+На \firef{fig:terraform-issuer} приведён пример описания
 доверенного эмитента с OIDC Discovery.
 
-\begin{lstlisting}[language=HCL,label={lst:terraform-issuer},
-  caption={Описание доверенного эмитента в Terraform}]
+\begin{lstlisting}[language=HCL]
 resource "authjwt_trusted_issuer" "AuthJwtBeta" {
   issuer_name        = "AuthJwtBeta"
   storage_type       = "OIDC"
@@ -946,6 +945,7 @@ resource "authjwt_trusted_issuer" "AuthJwtBeta" {
   }
 }
 \end{lstlisting}
+\codefig{Описание доверенного эмитента в Terraform}{fig:terraform-issuer}
 
 \emph{Terraform-модуль}~--- переиспользуемый пакет конфигурации,
 объединяющий несколько ресурсов в единое целое~\cite{TerraformModules}.
