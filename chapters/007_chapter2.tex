@@ -331,21 +331,21 @@ Kubernetes, GitLab CI, Octopus Deploy.
 $c = 0{,}02$~ядра~CPU и $m = 64$~МБ оперативной памяти.
 
 Общее число агентов на платформе:
-\begin{equation}
+\begin{equation*}
   N = N_{\text{мс}} \cdot K + N_{\text{cdp}}
     = 160 \cdot 5 + 1500 = 2300,
-\end{equation}
+\end{equation*}
 где $N_{\text{мс}} = 160$~--- число микросервисов,
 $K = 5$~--- число контуров,
 $N_{\text{cdp}} = 1500$~--- общее число активных CDP-клиентов.
 
 Суммарное потребление ресурсов на всю платформу:
-\begin{equation}
+\begin{equation*}
   M = N \cdot m = 2300 \cdot 64\text{ МБ} \approx 145\text{ ГБ},
-\end{equation}
-\begin{equation}
+\end{equation*}
+\begin{equation*}
   C = N \cdot c = 2300 \cdot 0{,}02 = 46\text{ ядер}.
-\end{equation}
+\end{equation*}
 
 Таким образом, агенты авторизации потребуют 145~ГБ памяти
 и 46~ядер CPU на платформу,
@@ -375,12 +375,12 @@ $c = 0{,}02$~ядра~CPU и $m = 64$~МБ оперативной памяти �
 (токены и ключи занимают единицы килобайт).
 Число операторов определяется числом кластеров;
 для расчёта возьмём верхнюю границу $K = 18$ кластеров на контур:
-\begin{equation}
+\begin{equation*}
   M = K \cdot m = 18 \cdot 64\text{ МБ} \approx 1{,}1\text{ ГБ на контур},
-\end{equation}
-\begin{equation}
+\end{equation*}
+\begin{equation*}
   C = K \cdot c = 18 \cdot 0{,}02 \approx 0{,}4\text{ ядра на контур}.
-\end{equation}
+\end{equation*}
 
 При 5~контурах суммарные затраты составят
 $M_{\Sigma} = 1{,}1 \cdot 5 = 5{,}5$~ГБ памяти
@@ -484,8 +484,9 @@ $R$~--- число реплик микросервиса,
 $TTL$~--- время жизни токена в секундах,
 $RPS_{\text{in}}$~--- входящий RPS микросервиса.
 
-Без кеша нагрузка ограничена лишь входящим потоком запросов:
-\begin{equation}
+Без кеша нагрузка ограничена лишь входящим потоком запросов
+согласно формуле~\eqref{eq:rps-nocache}:
+\begin{equation}\label{eq:rps-nocache}
   RPS_{\text{без кеша}} = RPS_{\text{in}}.
 \end{equation}
 
@@ -493,18 +494,20 @@ $RPS_{\text{in}}$~--- входящий RPS микросервиса.
 и переиспользуется до истечения TTL.
 В наихудшем случае (холодный старт, кеш пуст)
 все реплики одновременно запросят токены для всех тенантов,
-но кеш не допустит повторных запросов:
+но кеш не допустит повторных запросов, что отражает
+формула~\eqref{eq:rps-worst}:
 \begin{equation}\label{eq:rps-worst}
   RPS_{\text{worst}} = \min\!\left(RPS_{\text{in}},\; N_t \cdot R\right).
 \end{equation}
 
 В установившемся режиме токены обновляются равномерно
-по мере истечения TTL:
+по мере истечения TTL, что описывает формула~\eqref{eq:rps-effective}:
 \begin{equation}\label{eq:rps-effective}
   RPS_{\text{eff}} = \frac{N_t \cdot R}{TTL}.
 \end{equation}
 
-Таким образом, кеш снижает нагрузку на порядки~---
+Сравнение формул~\eqref{eq:rps-nocache}, \eqref{eq:rps-worst}
+и~\eqref{eq:rps-effective} показывает, что кеш снижает нагрузку на порядки~---
 с потенциально тысяч запросов в секунду до единиц и десятков,
 делая динамический режим допустимым для высоконагруженных микросервисов.
 
@@ -755,9 +758,9 @@ Grace-периоды между шагами будут реализованы �
 Вспомним формулу~\eqref{eq:operator-update-time}
 из раздела~\ref{sec:delivery}:
 
-\begin{equation}
+\begin{equation*}
   T_{\text{обн}} = \left\lceil \frac{n}{p} \right\rceil \cdot t,
-\end{equation}
+\end{equation*}
 где $n$~--- число клиентов в кластере,
 $p$~--- степень параллелизма оператора,
 $t$~--- среднее время обработки одного клиента.
